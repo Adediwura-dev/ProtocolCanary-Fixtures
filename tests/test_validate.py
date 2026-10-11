@@ -507,6 +507,37 @@ class ValidatorTests(unittest.TestCase):
             report.errors,
         )
 
+    def test_rejects_non_string_id(self) -> None:
+        data = {
+            "id": 12345,
+            "protocol": 28,
+            "surface": "xdr",
+            "category": "cap-0083",
+            "description": "example",
+            "source_reference": "CAP-0083",
+        }
+        fixture = validate.Fixture(Path("non-string-id.toml"), data)
+        report = validate.Report()
+
+        validate.validate_common_fields(fixture, report)
+
+        self.assertTrue(
+            any("field 'id' must be of type str" in error for error in report.errors),
+            report.errors,
+        )
+
+    def test_run_validation_rejects_non_string_id(self) -> None:
+        bad = VALID_XDR.replace('id = "p28-xdr-cap83-example"', "id = 12345")
+        report = self.run_validation({"a.toml": bad})
+        self.assertTrue(
+            any("field 'id' must be of type str" in error for error in report.errors),
+            report.errors,
+        )
+
+    def test_known_fixture_id_returns_none_for_non_string_id(self) -> None:
+        fx = validate.Fixture(Path("test.toml"), {"id": 12345})
+        self.assertIsNone(validate.known_fixture_id(fx))
+
     def test_rejects_missing_surface(self) -> None:
         data = {
             "id": "p28-xdr-cap83-missing-surface",
@@ -986,6 +1017,21 @@ field = "error"
             self.assertEqual(err.getvalue(), "")
             self.assertIn("1 fixture file(s) valid across 1 root(s)", out.getvalue())
 
+    def test_main_rejects_non_directory_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "not-a-directory.txt"
+            file_path.write_text("dummy", encoding="utf-8")
+            code, out, err = run_main([str(file_path)])
+        self.assertEqual(code, 1)
+        self.assertIn("not a directory", err)
+        self.assertIn("FAILED: 1 error(s)", err)
+
+    def test_main_rejects_non_existent_root(self) -> None:
+        code, out, err = run_main(["non-existent-root-path-for-test"])
+        self.assertEqual(code, 1)
+        self.assertIn("not a directory", err)
+        self.assertIn("FAILED: 1 error(s)", err)
+
 
 class QuietFlagTests(unittest.TestCase):
     """`--quiet` suppresses warnings while keeping errors and the summary.
@@ -1128,6 +1174,58 @@ class SchemaSyncTests(unittest.TestCase):
         ]
         errors = schema_sync.check_sync(drift, self.validator)
         self.assertTrue(any("soroban surface" in e for e in errors), errors)
+
+    def test_detects_a_missing_xdr_surface_block(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        drift["allOf"] = [
+            block
+            for block in drift["allOf"]
+            if block["if"]["properties"]["surface"]["const"] != "xdr"
+        ]
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("xdr surface" in e for e in errors), errors)
+
+    def test_detects_a_missing_rpc_surface_block(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        drift["allOf"] = [
+            block
+            for block in drift["allOf"]
+            if block["if"]["properties"]["surface"]["const"] != "rpc"
+        ]
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("rpc surface" in e for e in errors), errors)
+
+    def test_detects_surface_enum_drift(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        drift["properties"]["surface"]["enum"].append("cli")
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("surface enum" in e for e in errors), errors)
+
+    def test_detects_xdr_kind_drift(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        block = schema_sync.surface_block(drift, "xdr")
+        assert block is not None
+        block["properties"]["kind"]["enum"].append("fuzz-test")
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("xdr kind enum" in e for e in errors), errors)
+
+    def test_main_reports_failure_on_schema_validator_drift(self) -> None:
+        with mock.patch.object(
+            schema_sync, "check_sync", return_value=["rpc method enum drift"]
+        ):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = schema_sync.main([])
+        self.assertEqual(code, 1)
+        self.assertIn("error: rpc method enum drift", err.getvalue())
+        self.assertIn("FAILED: 1 schema/validator drift error(s)", err.getvalue())
+
+    def test_main_rejects_unexpected_arguments(self) -> None:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = schema_sync.main(["--unexpected-flag"])
+        self.assertEqual(code, 2)
+        self.assertIn("usage:", err.getvalue())
 
 
 if __name__ == "__main__":
