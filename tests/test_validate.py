@@ -586,6 +586,25 @@ class ValidatorTests(unittest.TestCase):
         report = self.run_validation({"a.toml": bad})
         self.assertTrue(any("description" in e for e in report.errors))
 
+    def test_rejects_non_string_description(self) -> None:
+        data = {
+            "id": "p28-xdr-cap83-non-string-description",
+            "protocol": 28,
+            "surface": "xdr",
+            "category": "cap-0083",
+            "description": 123,
+            "source_reference": "CAP-0083",
+        }
+        fixture = validate.Fixture(Path("non-string-description.toml"), data)
+        report = validate.Report()
+
+        validate.validate_common_fields(fixture, report)
+
+        self.assertTrue(
+            any("field 'description' must be of type str" in error for error in report.errors),
+            report.errors,
+        )
+
     def test_rejects_empty_description(self) -> None:
         # schemas/fixture-v1.schema.json declares description with
         # minLength 1, so an empty string must fail validation the same way
