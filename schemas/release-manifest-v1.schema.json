@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/StellarCanary/ProtocolCanary-Fixtures/main/schemas/release-manifest-v1.schema.json",
+  "title": "Protocol Canary fixture-pack release manifest (manifestVersion 1)",
+  "description": "The release manifest of CF-06 section 3, written by tools/release/manifest.py next to a pack archive. compatibleEngines lists exact versions only; verified is true only when that exact engine and pack were run together and the run is recorded under CF-04.",
+  "type": "object",
+  "required": [
+    "manifestVersion",
+    "name",
+    "version",
+    "protocols",
+    "revision",
+    "packDigest",
+    "registryVersion",
+    "archive",
+    "compatibleEngines"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "manifestVersion": {"type": "integer", "const": 1},
+    "name": {"type": "string", "const": "protocolcanary-fixtures"},
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "protocols": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "packDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "registryVersion": {"type": "integer", "minimum": 1},
+    "archive": {
+      "type": "object",
+      "required": ["file", "sha256", "bytes", "entries", "uncompressedBytes"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^protocolcanary-fixtures-(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.tar\\.gz$"
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "entries": {"type": "integer", "minimum": 0},
+        "uncompressedBytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "compatibleEngines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version", "verified"],
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+          },
+          "verified": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}
