@@ -48,8 +48,14 @@ near a day boundary ambiguous by up to a day, defeating that purpose.
    docs — in that order of preference. Never cite a source you have not
    actually checked describes the specific behavior you are asserting.
 2. **Add source provenance.** Every fixture sets `source_reference` to an
-   authoritative URL or CAP identifier — omitting it is a hard validator
-   error, not a warning — and its header comment (a `#`
+   authoritative CAP identifier (`CAP-0083`) or an absolute `https://` URL —
+   omitting it is a hard validator error, not a warning, and so is free text
+   such as `see issue`, a relative link, `http://`, or a URL with
+   credentials. A link into GitHub (`github.com/.../blob/...` or
+   `raw.githubusercontent.com/...`) must name a full commit SHA or a release
+   tag, not a branch such as `master`, so it keeps describing what the
+   fixture was written against; documentation pages have no ref to pin. The
+   header comment (a `#`
    comment block above the TOML body) explains, in prose, how the expected
    value was derived or observed — e.g. "built with the official
    `stellar-xdr` 28.0.0 crate against the CAP-0083 `StellarValue` type",
@@ -315,6 +321,8 @@ Quick reference for what contributors hit most often. Each line is the error as
 | `ModuleNotFoundError: No module named 'tomllib'` | Your `python3` is older than 3.11. `tomllib` is a 3.11+ stdlib module and the validator has no third-party dependencies, so there is nothing to install — use a newer interpreter (CI runs 3.11.16). |
 | `no 'source_reference' set; ...` | The fixture omits `source_reference`. Add it: a CAP id (`CAP-0083`) or an authoritative URL such as the RPC method reference. It is an **error**, not a warning. |
 | `field 'category' is too vague ('misc'); use a specific CAP/topic slug` | `category` is one of `misc`, `other`, `test`, `general`. Use a specific CAP or topic slug instead, e.g. `cap-0083` or `network`. |
+| `field 'source_reference' links to GitHub ref 'master', which is a branch name and moves; pin ...` | The link follows a branch. Replace the branch with the full commit SHA of the revision you checked (`.../blob/<40-hex commit>/...`) or a release tag. |
+| `field 'source_reference' must be a CAP identifier such as 'CAP-0083' or an absolute https:// URL ...` | The value is free text or a relative link. Use `CAP-0083`-style identifiers, or the full `https://` URL of the page you checked. |
 | `duplicate fixture id '...': already defined in ...` | Two fixtures share an `id`. Ids must be unique across the whole tree — rename the new one. |
 | `README.md's fixtures badge is stale; run ...` | You added or removed a `*.toml`, so the fixture count in README.md is now wrong. Run `make badge` and commit the result. |
 | `missing required field '...'` with no obvious cause | Usually a typo'd duplicate of the intended field (e.g. `soure_reference`). Unknown top-level fields are silently ignored — see [Unknown top-level fields](#unknown-top-level-fields). |

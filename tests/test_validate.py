@@ -11,6 +11,7 @@ import io
 import os
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1226,6 +1227,200 @@ class SchemaSyncTests(unittest.TestCase):
             code = schema_sync.main(["--unexpected-flag"])
         self.assertEqual(code, 2)
         self.assertIn("usage:", err.getvalue())
+
+
+class SourceReferenceFormatTests(unittest.TestCase):
+    """`source_reference` must be a CAP identifier or a pinned https URL (F-025).
+
+    The syntactic rule is also expressed as ``source_reference.pattern`` in
+    schemas/fixture-v1.schema.json; ``SchemaSyncTests`` pins the two together.
+    The rule a regex cannot express, that a GitHub link names a commit or a
+    tag and not a branch, is checked only by ``validate.check_source_reference``.
+    """
+
+    SHA = "9cd703075d87a6ce293752b1532e7b68efe12ae1"
+
+    def problem(self, value: str) -> str | None:
+        return validate.check_source_reference(value)
+
+    def test_accepts_a_cap_identifier(self) -> None:
+        for value in ("CAP-0083", "CAP-0001", "CAP-9999"):
+            self.assertIsNone(self.problem(value), value)
+
+    def test_accepts_documentation_and_standards_urls(self) -> None:
+        for value in (
+            "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork",
+            "https://developers.stellar.org/docs/networks/software-versions#protocol-29",
+            "https://www.rfc-editor.org/rfc/rfc8785",
+            "https://datatracker.ietf.org/doc/html/rfc9110#section-15.5",
+        ):
+            self.assertIsNone(self.problem(value), value)
+
+    def test_accepts_github_links_pinned_to_a_commit_or_a_tag(self) -> None:
+        base = "https://github.com/stellar/stellar-protocol"
+        for value in (
+            f"{base}/blob/{self.SHA}/core/cap-0083.md",
+            f"{base}/blob/{self.SHA}/core/cap-0083.md#L10-L20",
+            f"{base}/tree/{self.SHA}/core",
+            f"{base}/blob/v28.0.1/core/cap-0083.md",
+            f"{base}/blob/28.0/core/cap-0083.md",
+            f"{base}/blob/protocol-28/core/cap-0083.md",
+            f"{base}/blob/core-v21.0.0-rc.1/core/cap-0083.md",
+            f"{base}/releases/tag/v28.0.1",
+            f"{base}/commit/{self.SHA}",
+            f"{base}/issues/1234",
+            f"{base}/pull/1234",
+            f"https://raw.githubusercontent.com/stellar/stellar-protocol/{self.SHA}/core/cap-0083.md",
+            "https://raw.githubusercontent.com/stellar/stellar-protocol/v28.0.1/core/cap-0083.md",
+            "https://raw.githubusercontent.com/stellar/stellar-protocol/refs/tags/v28.0.1/core/cap-0083.md",
+        ):
+            self.assertIsNone(self.problem(value), value)
+
+    def test_rejects_free_text(self) -> None:
+        for value in ("see issue", "TODO", "n/a", "the CAP", "CAP 0083", "CAP-83", "cap-0083"):
+            message = self.problem(value)
+            self.assertIsNotNone(message, value)
+            self.assertIn("CAP identifier", message)
+
+    def test_rejects_relative_links_and_non_https_schemes(self) -> None:
+        for value in (
+            "docs/cap-0083.md",
+            "./cap-0083.md",
+            "../cap-0083.md",
+            "/docs/cap-0083.md",
+            "//github.com/stellar/stellar-protocol/blob/v1/core/cap-0083.md",
+            "ftp://example.com/cap-0083.md",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "mailto:someone@example.com",
+        ):
+            self.assertIsNotNone(self.problem(value), value)
+
+    def test_rejects_plain_http(self) -> None:
+        message = self.problem("http://developers.stellar.org/docs/x")
+        self.assertIsNotNone(message)
+        self.assertIn("https://", message)
+
+    def test_rejects_urls_without_a_host_or_a_path(self) -> None:
+        for value in ("https://", "https:///docs/x", "https://example.com", "https://example.com/"):
+            self.assertIsNotNone(self.problem(value), value)
+        message = self.problem("https://localhost/docs/x")
+        self.assertIsNotNone(message)
+        self.assertIn("host", message)
+
+    def test_rejects_embedded_credentials(self) -> None:
+        for value in (
+            f"https://user:secret@github.com/stellar/stellar-protocol/blob/{self.SHA}/core/cap-0083.md",
+            "https://token@example.com/docs/x",
+        ):
+            message = self.problem(value)
+            self.assertIsNotNone(message, value)
+            self.assertIn("credentials", message)
+
+    def test_rejects_whitespace(self) -> None:
+        for value in (
+            "https://example.com/a b",
+            " https://example.com/docs/x",
+            "https://example.com/docs/x ",
+            "https://example.com/docs/x\n",
+            "https://example.com/\tdocs",
+        ):
+            self.assertIsNotNone(self.problem(value), repr(value))
+
+    def test_rejects_a_github_link_that_follows_a_branch(self) -> None:
+        base = "https://github.com/stellar/stellar-protocol"
+        for ref in ("master", "main", "develop", "HEAD", "latest", "next", "my-branch"):
+            message = self.problem(f"{base}/blob/{ref}/core/cap-0083.md")
+            self.assertIsNotNone(message, ref)
+            self.assertIn(repr(ref), message)
+            self.assertIn("pin", message)
+        self.assertIsNotNone(self.problem(f"{base}/tree/master/core"))
+        self.assertIsNotNone(
+            self.problem("https://raw.githubusercontent.com/stellar/stellar-protocol/master/core/cap-0083.md")
+        )
+        self.assertIsNotNone(
+            self.problem(
+                "https://raw.githubusercontent.com/stellar/stellar-protocol/refs/heads/master/core/cap-0083.md"
+            )
+        )
+
+    def test_rejects_a_short_commit_hash(self) -> None:
+        # Seven characters is ambiguous and can start to collide; the link
+        # must name the full object so it cannot silently change meaning.
+        base = "https://github.com/stellar/stellar-protocol"
+        self.assertIsNotNone(self.problem(f"{base}/blob/9cd7030/core/cap-0083.md"))
+        self.assertIsNotNone(self.problem(f"{base}/blob/{self.SHA.upper()}/core/cap-0083.md"))
+
+    def test_rejects_a_github_repository_root_and_a_ref_less_link(self) -> None:
+        for value in (
+            "https://github.com/stellar/stellar-protocol",
+            "https://github.com/stellar/stellar-protocol/",
+            "https://github.com/stellar",
+            "https://github.com/stellar/stellar-protocol/blob",
+        ):
+            self.assertIsNotNone(self.problem(value), value)
+
+    def test_rejects_an_overlong_reference(self) -> None:
+        value = "https://example.com/" + "a" * validate.MAX_SOURCE_REFERENCE_LENGTH
+        message = self.problem(value)
+        self.assertIsNotNone(message)
+        self.assertIn("characters", message)
+
+    def test_the_error_names_the_field_the_value_and_the_fix(self) -> None:
+        bad = VALID_XDR.replace(
+            'source_reference = "CAP-0083"',
+            'source_reference = "https://github.com/stellar/stellar-protocol/blob/master/core/cap-0083.md"',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            report = validate.validate_directory(Path(tmp))
+        matching = [e for e in report.errors if "source_reference" in e]
+        self.assertEqual(len(matching), 1, report.errors)
+        self.assertIn("'master'", matching[0])
+        self.assertIn("pin the link to a full commit SHA or a release tag", matching[0])
+        self.assertIn("blob/master/core/cap-0083.md", matching[0])
+
+    def test_a_pinned_github_link_passes_end_to_end(self) -> None:
+        good = VALID_XDR.replace(
+            'source_reference = "CAP-0083"',
+            f'source_reference = "https://github.com/stellar/stellar-protocol/blob/{self.SHA}/core/cap-0083.md"',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", good)
+            report = validate.validate_directory(Path(tmp))
+        self.assertEqual(report.errors, [])
+
+    def test_free_text_fails_end_to_end(self) -> None:
+        bad = VALID_XDR.replace('source_reference = "CAP-0083"', 'source_reference = "see issue"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            report = validate.validate_directory(Path(tmp))
+        self.assertTrue(any("source_reference" in e and "'see issue'" in e for e in report.errors))
+
+    def test_every_shipped_fixture_reference_passes(self) -> None:
+        for path in sorted((REPO_ROOT).glob("protocol-*/**/*.toml")):
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+            reference = data.get("source_reference")
+            self.assertIsInstance(reference, str, path)
+            self.assertIsNone(validate.check_source_reference(reference), f"{path}: {reference}")
+
+    def test_the_schema_example_passes_the_validator_rule(self) -> None:
+        schema = schema_sync.load_schema()
+        example = schema["examples"][0]["source_reference"]
+        self.assertIsNone(validate.check_source_reference(example))
+
+    def test_schema_sync_detects_a_drifted_pattern(self) -> None:
+        schema = copy.deepcopy(schema_sync.load_schema())
+        schema["properties"]["source_reference"]["pattern"] = "^https://.+$"
+        errors = schema_sync.check_sync(schema, validate)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("source_reference pattern", errors[0])
+
+    def test_schema_sync_detects_a_missing_pattern(self) -> None:
+        schema = copy.deepcopy(schema_sync.load_schema())
+        del schema["properties"]["source_reference"]["pattern"]
+        errors = schema_sync.check_sync(schema, validate)
+        self.assertEqual(len(errors), 1, errors)
 
 
 if __name__ == "__main__":

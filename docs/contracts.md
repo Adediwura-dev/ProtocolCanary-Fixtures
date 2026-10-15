@@ -6,8 +6,12 @@ The interfaces this repository shares with `Protocol-Canary` and
 This page lists what each contract asks of this repository. It does not repeat
 the rules; read the linked contract before implementing anything.
 
-None of the work below exists yet. Until a unit is implemented, the current
-behavior is the one described in the README and `CONTRIBUTING.md`.
+Most of the work below does not exist yet. Until a unit is implemented, the
+current behavior is the one described in the README and `CONTRIBUTING.md`.
+Implemented so far: the registry JSON Schema and the registry generator
+(`tools/registry/generate.py`, `make registry`), which is CF-02-B and
+CF-02-C. The generated `registry-v1.json` is not committed yet: that, and the
+CI freshness check that goes with it, is CF-02-E.
 
 | Contract | What this repository owns |
 |---|---|

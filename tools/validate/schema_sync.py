@@ -124,6 +124,15 @@ def check_sync(schema: dict, validator) -> list[str]:
         errors,
     )
 
+    expected_pattern = f"^({validator.SOURCE_REFERENCE_PATTERN})$"
+    actual_pattern = _get(properties, "source_reference", "pattern")
+    if actual_pattern != expected_pattern:
+        errors.append(
+            "source_reference pattern: tools/validate/validate.py and "
+            "schemas/fixture-v1.schema.json disagree "
+            f"(validator expects {expected_pattern!r}, schema has {actual_pattern!r})"
+        )
+
     xdr = surface_block(schema, "xdr")
     if xdr is None:
         errors.append("xdr surface: schema has no allOf/if block for surface 'xdr'")

@@ -22,14 +22,14 @@
 # The rejection is therefore the truncation itself, not an unrecognized
 # discriminant.
 #
-# Reference: https://github.com/stellar/stellar-protocol/blob/master/core/cap-0083.md
+# Reference: https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0083.md
 
 id = "p28-xdr-cap83-empty-tx-set-malformed"
 protocol = 28
 surface = "xdr"
 category = "cap-0083"
 description = "A truncated CAP-0083 StellarValue using the STELLAR_VALUE_EMPTY_TX_SET ext is correctly rejected"
-source_reference = "https://github.com/stellar/stellar-protocol/blob/master/core/cap-0083.md"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0083.md"
 
 type = "StellarValue"
 kind = "decode-failure"

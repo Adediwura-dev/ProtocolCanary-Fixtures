@@ -11,14 +11,14 @@
 # against the official `stellar-xdr` 28.0.0 crate directly
 # (ContractExecutable::from_xdr_base64 returns Err for this input).
 #
-# Reference: https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md
+# Reference: https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0085.md
 
 id = "p28-xdr-cap85-external-ref-malformed"
 protocol = 28
 surface = "xdr"
 category = "cap-0085"
 description = "A truncated CAP-0085 ContractExecutable::ExternalRef encoding is correctly rejected"
-source_reference = "https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0085.md"
 
 type = "ContractExecutable"
 kind = "decode-failure"

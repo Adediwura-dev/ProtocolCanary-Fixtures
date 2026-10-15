@@ -1,0 +1,36 @@
+{
+  "$schema": "./schemas/upstream-matrix.json",
+  "matrixVersion": 1,
+  "source": "https://developers.stellar.org/docs/networks/software-versions",
+  "checkedOn": "2026-10-15",
+  "protocols": {
+    "28": {
+      "stellar-core": {
+        "repository": "stellar/stellar-core",
+        "range": ">=28.0.0 <29.0.0"
+      },
+      "soroban-rpc": {
+        "repository": "stellar/stellar-rpc",
+        "range": ">=28.0.0 <29.0.0"
+      },
+      "rs-soroban-env": {
+        "repository": "stellar/rs-soroban-env",
+        "range": ">=28.0.0 <29.0.0"
+      }
+    },
+    "29": {
+      "stellar-core": {
+        "repository": "stellar/stellar-core",
+        "range": ">=29.0.0 <30.0.0"
+      },
+      "soroban-rpc": {
+        "repository": "stellar/stellar-rpc",
+        "range": ">=29.0.0 <30.0.0"
+      },
+      "rs-soroban-env": {
+        "repository": "stellar/rs-soroban-env",
+        "range": ">=29.0.0 <30.0.0"
+      }
+    }
+  }
+}

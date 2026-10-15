@@ -13,7 +13,7 @@
       "surface": "xdr",
       "category": "cap-0085",
       "description": "ContractExecutable using the CAP-0085 CONTRACT_EXECUTABLE_EXTERNAL_REF case round-trips byte-for-byte",
-      "source_reference": "https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md",
+      "source_reference": "https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0085.md",
       "type": "ContractExecutable",
       "kind": "roundtrip",
       "value_base64": "AAAAAgAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQAAAAhmbGVldC12MQ=="
@@ -48,7 +48,10 @@
     "source_reference": {
       "type": "string",
       "minLength": 1,
-      "description": "An authoritative upstream reference: a CAP identifier/URL, an upstream XDR definition, or an official release/API doc URL. Required for every protocol-specific fixture in this repository: tools/validate/validate.py reports a missing or empty source_reference as an error, so omitting it fails validation and CI."
+      "maxLength": 2048,
+      "pattern": "^(CAP-[0-9]{4}|https://[^\\s/?#@]+/[^\\s]+)$",
+      "description": "An authoritative upstream reference: a CAP identifier such as CAP-0083, or an absolute https:// URL to a CAP, an upstream XDR definition, or an official release/API doc. Required for every protocol-specific fixture in this repository: tools/validate/validate.py reports a missing or empty source_reference as an error, so omitting it fails validation and CI.",
+      "$comment": "The pattern is the syntactic rule and is kept identical to SOURCE_REFERENCE_PATTERN in tools/validate/validate.py (tools/validate/schema_sync.py checks it). That a github.com or raw.githubusercontent.com link is pinned to a commit or tag, not a branch, cannot be expressed here and is enforced only by validate.py, like the other loader-side invariants."
     },
     "required_capabilities": {
       "type": "array",

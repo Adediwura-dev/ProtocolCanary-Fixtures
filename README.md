@@ -95,6 +95,12 @@ Interfaces shared with the other two repositories (registry and digest,
 verification evidence, fixture releases) are specified in
 [`docs/contracts.md`](docs/contracts.md).
 
+Which upstream releases each protocol's fixtures were written against (Stellar
+Core, Stellar RPC, Stellar Horizon and the Soroban host environment, with their
+release tags, commits and the network passphrases) is in
+[`docs/upstream-matrix.md`](docs/upstream-matrix.md); the same information as
+data is in [`upstream-matrix.json`](upstream-matrix.json).
+
 ## Protocol packs
 
 | Pack | Status | Notes |

@@ -29,10 +29,12 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Mirrors canary-fixtures' supported surfaces; must be kept in sync with
 # docs/fixture-contract.md in the upstream canary-fixtures repo. Changing
@@ -74,6 +76,36 @@ CAPABILITIES = {
     "raw-ledger-access",
 }
 VAGUE_CATEGORIES = {"misc", "other", "test", "general"}
+
+# What `source_reference` may be (F-025). Two forms are accepted:
+#
+# * a CAP identifier such as ``CAP-0083``, the form CONTRIBUTING.md documents;
+# * an absolute ``https://`` URL with a host and a path, no credentials, and
+#   no whitespace.
+#
+# This pattern is the *syntactic* rule and is mirrored, character for
+# character, as ``source_reference.pattern`` in schemas/fixture-v1.schema.json
+# (tools/validate/schema_sync.py fails when the two differ). It is written
+# without lookarounds so it means the same thing as a Python regex and as an
+# ECMA-262 regex. The rule a regex cannot express, that a GitHub link must be
+# pinned to a commit or a tag, is `check_source_reference` below and is
+# enforced only here, like the other loader-side invariants.
+SOURCE_REFERENCE_PATTERN = r"CAP-[0-9]{4}|https://[^\s/?#@]+/[^\s]+"
+_SOURCE_REFERENCE_RE = re.compile(SOURCE_REFERENCE_PATTERN)
+MAX_SOURCE_REFERENCE_LENGTH = 2048
+
+# A GitHub ref is "pinned" when it names a commit or a release, not a branch:
+# a full 40 or 64 digit object name, or a version-like tag (``v28.0.1``,
+# ``28.0``, ``protocol-28``, ``core-v21.0.0``). A branch such as ``master``
+# moves, so a link that follows it can silently stop describing the behavior
+# the fixture was written against.
+_COMMIT_REF_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_VERSION_SUFFIX = r"[0-9]+(?:\.[0-9]+)*(?:[-+._][0-9A-Za-z.+_-]*)?"
+_TAG_REF_RE = re.compile(rf"v?{_VERSION_SUFFIX}|[A-Za-z][A-Za-z0-9._]*-v?{_VERSION_SUFFIX}")
+# URL path kinds on github.com whose next segment is a git ref.
+_GITHUB_REF_KINDS = {"blob", "tree", "raw", "blame", "edit", "commits"}
+_GITHUB_HOSTS = {"github.com", "www.github.com"}
+_GITHUB_RAW_HOST = "raw.githubusercontent.com"
 
 # Required fields, mirrored by schemas/fixture-v1.schema.json and kept in
 # sync by tools/validate/schema_sync.py (see CONTRIBUTING.md#fixture-schema).
@@ -148,6 +180,86 @@ class Report:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+def _is_pinned_ref(ref: str) -> bool:
+    return bool(_COMMIT_REF_RE.fullmatch(ref) or _TAG_REF_RE.fullmatch(ref))
+
+
+def check_source_reference(value: str) -> str | None:
+    """Return a message describing why ``value`` is not an acceptable
+    ``source_reference``, or ``None`` when it is.
+
+    The messages say what to change, because the usual cause is a link that
+    works today and is merely not pinned.
+    """
+    if len(value) > MAX_SOURCE_REFERENCE_LENGTH:
+        return (
+            f"is {len(value)} characters; a reference longer than "
+            f"{MAX_SOURCE_REFERENCE_LENGTH} is not a link a reader can follow"
+        )
+    if value != value.strip() or any(ch.isspace() for ch in value):
+        return "must not contain whitespace; use a CAP identifier or a single URL"
+    if not _SOURCE_REFERENCE_RE.fullmatch(value):
+        if value.startswith("http://"):
+            return "must use https://, not http://"
+        if value.startswith("https://") and "@" in value[len("https://"):].split("/")[0]:
+            return "must not embed credentials (user@host) in the URL"
+        return (
+            "must be a CAP identifier such as 'CAP-0083' or an absolute https:// "
+            "URL with a path (for example a CAP, RFC or documentation page); "
+            "free text and relative links are not accepted"
+        )
+    if value.startswith("CAP-"):
+        return None
+
+    parts = urlsplit(value)
+    host = (parts.hostname or "").lower()
+    segments = [s for s in parts.path.split("/") if s]
+    if not host or "." not in host:
+        return f"has no valid host name in {value!r}"
+    if parts.username is not None or parts.password is not None:
+        return "must not embed credentials (user@host) in the URL"
+
+    if host in _GITHUB_HOSTS:
+        if len(segments) < 3:
+            return (
+                "points at a GitHub repository root, which follows the default "
+                "branch; link to a file or page at a commit or tag instead"
+            )
+        kind = segments[2]
+        if kind in _GITHUB_REF_KINDS:
+            if len(segments) < 4:
+                return (
+                    f"has no ref after '/{kind}/'; link to a specific file at a "
+                    "commit or tag"
+                )
+            ref = segments[3]
+            if not _is_pinned_ref(ref):
+                return (
+                    f"links to GitHub ref {ref!r}, which is a branch name and "
+                    "moves; pin the link to a full commit SHA or a release tag "
+                    f"(for example .../{kind}/<40-hex commit>/...)"
+                )
+    elif host == _GITHUB_RAW_HOST:
+        # /<owner>/<repo>/<ref>/<path...>, or /<owner>/<repo>/refs/(heads|tags)/<name>/...
+        if len(segments) < 4:
+            return "has no ref and file path; link to a file at a commit or tag"
+        if segments[2] == "refs":
+            if len(segments) < 5 or segments[3] != "tags":
+                return (
+                    "links to a branch (refs/heads/...); pin the link to a full "
+                    "commit SHA or a release tag"
+                )
+            ref = segments[4]
+        else:
+            ref = segments[2]
+        if not _is_pinned_ref(ref):
+            return (
+                f"links to ref {ref!r}, which is a branch name and moves; pin "
+                "the link to a full commit SHA or a release tag"
+            )
+    return None
 
 
 def find_fixture_files(root: Path) -> list[Path]:
@@ -243,6 +355,12 @@ def validate_common_fields(fx: Fixture, report: Report) -> None:
     if "source_reference" in data:
         if not isinstance(data["source_reference"], str) or not data["source_reference"]:
             report.error(path, "field 'source_reference', if present, must be a non-empty string")
+        else:
+            problem = check_source_reference(data["source_reference"])
+            if problem is not None:
+                report.error(
+                    path, f"field 'source_reference' {problem} (got {data['source_reference']!r})"
+                )
     else:
         report.error(
             path,

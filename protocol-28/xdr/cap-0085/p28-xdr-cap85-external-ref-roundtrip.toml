@@ -36,14 +36,14 @@
 # support the "ContractExecutable" XDR type name, added alongside this
 # fixture (previously only "StellarValue" was supported).
 #
-# Reference: https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md
+# Reference: https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0085.md
 
 id = "p28-xdr-cap85-external-ref-roundtrip"
 protocol = 28
 surface = "xdr"
 category = "cap-0085"
 description = "ContractExecutable using the CAP-0085 CONTRACT_EXECUTABLE_EXTERNAL_REF case round-trips byte-for-byte"
-source_reference = "https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/9cd703075d87a6ce293752b1532e7b68efe12ae1/core/cap-0085.md"
 
 type = "ContractExecutable"
 kind = "roundtrip"
