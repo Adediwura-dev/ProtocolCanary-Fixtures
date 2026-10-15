@@ -7,6 +7,8 @@
 #   make test         - repository test suite (unittest discover tests)
 #   make registry     - write PACK/registry-v1.json (tools/registry/generate.py);
 #                       PACK defaults to protocol-28. Not part of `make check`.
+#   make pack         - build dist/protocolcanary-fixtures-VERSION.tar.gz for PACK
+#                       (tools/pack/pack.py); VERSION is required, e.g. VERSION=1.0.0
 #   make check        - all of the above, in CI's order; stops at the first failure
 #
 # Run from the repository root (make defaults to this file's directory).
@@ -14,7 +16,7 @@
 
 PACK ?= protocol-28
 
-.PHONY: validate badge badge-check test registry check
+.PHONY: validate badge badge-check test registry pack check
 
 validate:
 	python3 tools/validate/validate.py
@@ -30,5 +32,9 @@ test:
 
 registry:
 	python3 tools/registry/generate.py $(PACK)
+
+pack:
+	@test -n "$(VERSION)" || { echo "usage: make pack VERSION=1.0.0 [PACK=protocol-28]" >&2; exit 2; }
+	python3 tools/pack/pack.py $(PACK) --version $(VERSION) --output-dir dist
 
 check: validate badge-check test
