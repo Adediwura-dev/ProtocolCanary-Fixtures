@@ -256,7 +256,15 @@ def validate_common_fields(fx: Fixture, report: Report) -> None:
         if not isinstance(caps, list):
             report.error(path, "field 'required_capabilities' must be an array")
         else:
+            seen_caps: set[str] = set()
             for cap in caps:
+                if cap in seen_caps:
+                    report.error(
+                        path,
+                        f"duplicate entry {cap!r} in 'required_capabilities'",
+                    )
+                else:
+                    seen_caps.add(cap)
                 if cap not in CAPABILITIES:
                     report.error(
                         path,
