@@ -1,0 +1,55 @@
+# Protocol 28 Soroban simulation error fixture: unexported function name.
+#
+# What this tests. Invoking a function the contract does not export must
+# surface as a simulation failure carrying a host error code -- not as a
+# silent success, and not as a transport-level JSON-RPC error. The target is
+# the testnet Stellar Asset Contract for native XLM
+# (CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC), a reserved,
+# network-wide, always-present address that this repository did not deploy.
+# SEP-41 defines that contract's exported interface (name, symbol, decimals,
+# balance, transfer, approve, ...); `canary_nonexistent_function` is
+# deliberately not part of it.
+#
+# Why it matters. A consumer that renames or misspells a contract function
+# across a protocol upgrade must get a typed, diagnosable failure from
+# simulateTransaction. Were the host to return success instead, or to report
+# the failure as a JSON-RPC error rather than in `result.error`, an upgrade
+# rehearsal would misreport a broken integration as healthy.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-15 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org returned in
+# `result.error`:
+#   HostError: Error(Value, InvalidInput)
+# with diagnostic event ["symbol not found in slice of strs",
+# canary_nonexistent_function]. That pair is SCE_VALUE (=8) and
+# SCEC_INVALID_INPUT (=2) from the SCErrorType/SCErrorCode taxonomy in
+# Stellar-contract.x. message_contains pins only that stable
+# `Error(<type>, <code>)` form; the diagnostic wording is a host-internal
+# detail free to change and is deliberately not asserted.
+#
+# Deterministic. Nothing is deployed and no ledger state is read: the contract
+# is reserved and always present, the call is a pure invocation from the
+# all-zero (unfunded) source account, and the outcome depends only on the
+# contract's exported symbol table.
+#
+# How it was observed. See docs/protocol-28.md, "Soroban simulation error
+# fixtures", for the verification method shared by the four
+# p28-soroban-sim-error-* fixtures, including the `name()` positive control
+# that validates the transaction envelope used here. Testnet reported
+# protocolVersion 29 at observation time while this pack targets protocol 28.
+
+id = "p28-soroban-sim-error-unknown-function"
+protocol = 28
+surface = "soroban"
+category = "simulation-error"
+description = "simulateTransaction fails with host error Error(Value, InvalidInput) when invoking a function the Stellar Asset Contract does not export"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/4db3e802b2929c865a27bd43f2544c979150137d/ecosystem/sep-0041.md"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "canary_nonexistent_function"
+sequence_number = 1
+
+[expect]
+kind = "simulation-error"
+message_contains = "Error(Value, InvalidInput)"

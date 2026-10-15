@@ -1,0 +1,55 @@
+# Protocol 28 Soroban simulation error fixture: wrong argument count.
+#
+# What this tests. Calling a real, exported contract function with the wrong
+# number of arguments must fail with a context-subsystem host error. The target
+# is the testnet Stellar Asset Contract for native XLM
+# (CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC), a reserved,
+# network-wide, always-present address that this repository did not deploy, and
+# `transfer` is a genuine SEP-41 entry point -- so unlike
+# p28-soroban-sim-error-unknown-function.toml, the function name here is
+# correct and only the arity is wrong. SEP-41 declares
+# `fn transfer(env, from: Address, to: MuxedAddress, amount: i128)`, i.e.
+# three arguments; this fixture supplies none.
+#
+# Why it matters. Arity is the part of a contract interface most likely to
+# shift across a protocol or SDK upgrade -- an entry point gaining or losing a
+# parameter is a source-compatible-looking change that breaks every caller. A
+# canary that only checked "does the function exist" would miss it; this
+# fixture fails if a call with the documented arity stops being rejected, or if
+# the rejection stops carrying a typed host error.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-15 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org returned in
+# `result.error`:
+#   HostError: Error(Context, UnexpectedSize)
+# with diagnostic event ["wrong number of args to func", transfer]. That pair
+# is SCE_CONTEXT (=2) and SCEC_UNEXPECTED_SIZE (=9) from the
+# SCErrorType/SCErrorCode taxonomy in Stellar-contract.x. message_contains pins
+# only that stable `Error(<type>, <code>)` form.
+#
+# Deterministic. No state is read and nothing is deployed: the contract is
+# reserved and always present, the call is a pure invocation from the all-zero
+# (unfunded) source account, and the outcome depends only on the exported
+# function's fixed arity.
+#
+# How it was observed. See docs/protocol-28.md, "Soroban simulation error
+# fixtures", for the verification method shared by the four
+# p28-soroban-sim-error-* fixtures, including the `name()` positive control
+# that validates the transaction envelope used here. Testnet reported
+# protocolVersion 29 at observation time while this pack targets protocol 28.
+
+id = "p28-soroban-sim-error-arg-count"
+protocol = 28
+surface = "soroban"
+category = "simulation-error"
+description = "simulateTransaction fails with host error Error(Context, UnexpectedSize) when SEP-41 transfer() is invoked with zero arguments instead of three"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/4db3e802b2929c865a27bd43f2544c979150137d/ecosystem/sep-0041.md"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "transfer"
+sequence_number = 1
+
+[expect]
+kind = "simulation-error"
+message_contains = "Error(Context, UnexpectedSize)"

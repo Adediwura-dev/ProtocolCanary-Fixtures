@@ -1,6 +1,6 @@
 # Protocol 28 compatibility pack
 
-This pack contains **7 fixtures**.
+This pack contains **11 fixtures**.
 
 Implemented in Stellar Core 28.0.0, Stellar RPC 28.0.0 (integration-tested
 against Soroban host 28.0.1), and the official `stellar-xdr` 28.0.0 crate.
@@ -28,6 +28,10 @@ enumeration.
 | [`rpc/p28-rpc-network.toml`](rpc/p28-rpc-network.toml) | rpc | — | A configured RPC endpoint's `getNetwork` reports protocol 28 with a `passphrase` field. |
 | [`rpc/p28-rpc-latest-ledger.toml`](rpc/p28-rpc-latest-ledger.toml) | rpc | — | The same endpoint's `getLatestLedger` reports protocol 28, a numeric `sequence`, a string ledger `id`, and no `getNetwork`-only fields. |
 | [`soroban/p28-soroban-native-asset-name.toml`](soroban/p28-soroban-native-asset-name.toml) | soroban | — | The full construct → `simulateTransaction` → result pipeline works against real Protocol 28 infrastructure. |
+| [`soroban/p28-soroban-sim-error-unknown-function.toml`](soroban/p28-soroban-sim-error-unknown-function.toml) | soroban | — | Invoking a function the Stellar Asset Contract does not export fails with `Error(Value, InvalidInput)` in `result.error`. |
+| [`soroban/p28-soroban-sim-error-missing-contract.toml`](soroban/p28-soroban-sim-error-missing-contract.toml) | soroban | — | A well-formed contract id with no stored instance fails with `Error(Storage, MissingValue)` rather than being treated as an empty contract. |
+| [`soroban/p28-soroban-sim-error-arg-count.toml`](soroban/p28-soroban-sim-error-arg-count.toml) | soroban | — | Calling SEP-41 `transfer()` with zero arguments instead of three fails with `Error(Context, UnexpectedSize)`. |
+| [`soroban/p28-soroban-sim-error-arg-type.toml`](soroban/p28-soroban-sim-error-arg-type.toml) | soroban | — | Calling SEP-41 `transfer()` with symbols in both address positions fails with `Error(Value, UnexpectedType)`. |
 
 > **Column legend** — *Fixture*: the fixture file, linked to its path inside
 > this pack (the fixture ID is the file's name without the `.toml`
@@ -41,4 +45,5 @@ enumeration.
 
 See [`../docs/protocol-28.md`](../docs/protocol-28.md) for what this pack
 checks, what it deliberately does not (including why CAP-0086 has no
-fixture yet), and source provenance for every assertion above.
+fixture yet, and why there are no simulation-`auth` or resource-estimation
+fixtures), and source provenance for every assertion above.

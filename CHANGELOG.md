@@ -60,8 +60,60 @@ discussion and diff. New entries must include that link; see
   `tools/validate/validate.py` accepts — the documentation leg
   `schema_sync.py` does not cover, and the drift that issue #162 was about.
   ([PR #236])
+- `tests/scval_xdr.py`, `tests/vectors/scval_parity/scval_parity.json` and
+  `tests/test_scval_parity.py`: a standard-library-only XDR codec for the
+  `ScVal` union, 36 golden vectors, and 29 tests asserting **bit-for-bit**
+  roundtrip identity (not merely value equality). The vectors were derived
+  field by field from `Stellar-contract.x` at `stellar/stellar-xdr` tag
+  `v28.0` (commit `9c9c145`) independently of the codec, so the suite
+  compares two derivations rather than checking a codec against its own
+  output. Coverage spans integers (`u32`/`i32`/`u64`/`i64` and all four
+  128/256-bit hi/lo forms), bytes, addresses (both `SCAddress` arms),
+  vectors, maps and the remaining primitive variants; the five `ScVal`
+  variants this repository has no use for are rejected on decode rather
+  than silently skipped. Where the XDR text leaves strictness open the
+  codec follows `stellar-xdr`'s generated `ReadXdr` implementations,
+  because parity means agreeing with the reference implementation. Closes
+  [issue #304](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/304).
+  ([PR #308])
+- Four `protocol-28/soroban/` fixtures asserting the failure side of the
+  construct → `simulateTransaction` → result pipeline:
+  `p28-soroban-sim-error-unknown-function` (`Error(Value, InvalidInput)`),
+  `p28-soroban-sim-error-missing-contract` (`Error(Storage, MissingValue)`),
+  `p28-soroban-sim-error-arg-count` (`Error(Context, UnexpectedSize)`) and
+  `p28-soroban-sim-error-arg-type` (`Error(Value, UnexpectedType)`). Each
+  `(type, code)` pair is a real `SCErrorType`/`SCErrorCode` member of
+  `Stellar-contract.x` at `v28.0`, observed live against
+  `soroban-testnet.stellar.org` on 2026-10-15 (UTC); only that stable form
+  is pinned, never the host's diagnostic-event wording. The observations
+  were bootstrapped by a `name()`/`decimals()` positive control that
+  reproduced the values `p28-soroban-native-asset-name` records from
+  2026-09-02, and the method is written up in `docs/protocol-28.md`.
+  ([PR #308])
+- `tests/test_sim_error_fixtures.py` (21 tests): derives the rendered
+  host-error spellings from the `SCErrorType`/`SCErrorCode` enum names and
+  checks every fixture's `message_contains` against them, so an invented
+  error name cannot be committed; verifies the suite spans distinct codes
+  and at least three host subsystems; pins the determinism rules (reserved
+  or provably absent contracts only, the unfunded all-zero source account,
+  no live-varying state); and covers the validator's `[expect]` rejections.
+  ([PR #308])
 
 ### Changed
+
+- `tools/validate/validate.py` and `schemas/fixture-v1.schema.json` now
+  reject a soroban `[expect]` table containing a key other than `kind` or
+  `message_contains`, a non-string `message_contains`, and an empty one.
+  This closes a real divergence rather than adding a new rule:
+  `canary-soroban` calls `unknown_body_keys(expect, ["kind",
+  "message_contains"])` and reads the needle with
+  `.and_then(toml::Value::as_str)`, so an unknown key is a loader error and
+  a non-string is **silently dropped** — degrading the fixture to "the
+  simulation failed" while it still looks like it pins a message. An empty
+  needle matches every message for the same reason. The field remains
+  genuinely optional, matching the loader's `Option<String>`;
+  `test_message_contains_is_optional` pins that so it is not "fixed" into a
+  divergence later. ([PR #308])
 
 - The structural validator now rejects an empty-string `description`,
   matching `schemas/fixture-v1.schema.json`'s `minLength: 1` and the
@@ -157,6 +209,37 @@ discussion and diff. New entries must include that link; see
   deployment are recorded in [`docs/protocol-28.md`](docs/protocol-28.md) and
   tracked by [issue #8](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/8).
   ([757e1e7])
+- **Soroban simulation `auth` and resource-estimation assertions are not
+  covered.** [Issue #300](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/300)
+  (F-043) asks for fixtures asserting on the `auth` array a
+  `simulateTransaction` response carries, and
+  [issue #301](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/301)
+  (F-044) for fixtures asserting on `minResourceFee`/`transactionData`.
+  Neither is expressible in the fixture contract this repository mirrors:
+  read against `StellarCanary/Protocol-Canary` at `2a88756`,
+  `SimulationResponse` has no `auth` field at all, `SorobanAssertion` has
+  exactly two variants (`SimulationSuccess`, `SimulationError`) and rejects
+  any other `expect.kind` or any extra `[expect]` key, and
+  `min_resource_fee`/`transaction_data` are deserialized but read by no
+  production code. Extending this repository's schema anyway would invert
+  CONTRIBUTING.md's ownership rule — the schema mirrors the loader, never
+  leads — and would break every consumer, because `canary-runner`'s
+  scheduler calls `SorobanFixture::from_loaded` with `?`, so one unparseable
+  fixture aborts the whole run as exit 4 rather than being skipped.
+  `required_capabilities` cannot gate it either: `Capability` is a closed
+  five-member enum with no member meaning auth or resource estimation. The
+  gap closes once upstream
+  [#517](https://github.com/StellarCanary/Protocol-Canary/issues/517)
+  (E-119, open) and an equivalent resource-estimation assertion land and
+  are released. See `docs/protocol-28.md`, "Soroban simulation auth and
+  resource estimation". ([PR #308])
+- **Contract panics and contract-defined error codes are not covered by the
+  simulation-error suite.** `SCErrorType`'s tenth member, `SCE_CONTRACT`,
+  carries a user-defined `uint32` rather than an `SCErrorCode`, and a WASM
+  trap produces `Error(WasmVm, …)` from code this repository does not ship;
+  reaching either needs a deployed contract, which "What never belongs in a
+  fixture" rules out. `test_no_fixture_claims_a_contract_defined_error`
+  guards the gap so it cannot be closed by fabrication. ([PR #308])
 - `protocol-27/` is intentionally empty; see `protocol-27/README.md`.
   ([757e1e7])
 
@@ -171,7 +254,7 @@ discussion and diff. New entries must include that link; see
 <!-- Link definitions: the pull request or commit that introduced each
      entry above. Commits listed here were pushed directly to `main`
      without a pull request; PR #97, PR #143, PR #176, PR #219, PR #231,
-     PR #232, PR #236 and PR #252 are the [Unreleased] entries that
+     PR #232, PR #236, PR #252 and PR #308 are the [Unreleased] entries that
      originated from pull requests. -->
 
 [757e1e7]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/757e1e777489bb5c20e7500b245370de227c66b3
@@ -193,3 +276,4 @@ discussion and diff. New entries must include that link; see
 [PR #232]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/232
 [PR #236]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/236
 [PR #252]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/252
+[PR #308]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/308

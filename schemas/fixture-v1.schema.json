@@ -158,13 +158,19 @@
           "expect": {
             "type": "object",
             "required": ["kind"],
+            "additionalProperties": false,
             "properties": {
               "kind": {
                 "type": "string",
                 "enum": ["simulation-success", "simulation-error"]
               },
-              "message_contains": { "type": "string" }
-            }
+              "message_contains": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional, and only meaningful with kind = simulation-error: a substring the simulation's error message must contain. Omit it to assert only that the simulation failed. It must be a non-empty string when present -- canary-soroban reads it as Option<String> via as_str, so a non-string is silently dropped and an empty string matches every message, either way weakening the assertion without any visible error."
+              }
+            },
+            "$comment": "additionalProperties mirrors canary-soroban's unknown_body_keys(expect, [\"kind\", \"message_contains\"]), which rejects any other key. Unlike the top level of a fixture, where unknown fields are deliberately permitted, [expect] is closed upstream."
           }
         }
       }

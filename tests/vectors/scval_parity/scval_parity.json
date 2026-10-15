@@ -1,0 +1,388 @@
+{
+  "description": "Golden ScVal XDR test vectors for protocol 28. Each entry pairs a logical ScVal with the exact bytes its XDR encoding must produce. The xdr_hex values were derived by writing the byte layout out field by field from the authoritative definition in stellar/stellar-xdr at tag v28.0 (commit 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694), file Stellar-contract.x -- enum SCValType, union SCVal, SCVec/SCMap/SCMapEntry, SCAddress and the {U,I}{128,256}Parts structs -- not by running the codec under test.",
+  "source_reference": "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x",
+  "xdr_tag": "v28.0",
+  "vectors": [
+    {
+      "name": "bool_true",
+      "note": "SCV_BOOL discriminant 0, XDR bool TRUE is 1",
+      "scval": {
+        "type": "bool",
+        "value": true
+      },
+      "xdr_hex": "0000000000000001"
+    },
+    {
+      "name": "bool_false",
+      "note": "SCV_BOOL discriminant 0, XDR bool FALSE is 0",
+      "scval": {
+        "type": "bool",
+        "value": false
+      },
+      "xdr_hex": "0000000000000000"
+    },
+    {
+      "name": "void",
+      "note": "SCV_VOID discriminant 1 carries no payload",
+      "scval": {
+        "type": "void",
+        "value": null
+      },
+      "xdr_hex": "00000001"
+    },
+    {
+      "name": "u32_zero",
+      "note": "SCV_U32 discriminant 3",
+      "scval": {
+        "type": "u32",
+        "value": 0
+      },
+      "xdr_hex": "0000000300000000"
+    },
+    {
+      "name": "u32_max",
+      "note": "SCV_U32 upper bound 2**32-1",
+      "scval": {
+        "type": "u32",
+        "value": 4294967295
+      },
+      "xdr_hex": "00000003ffffffff"
+    },
+    {
+      "name": "i32_neg_one",
+      "note": "SCV_I32 discriminant 4, two's complement -1",
+      "scval": {
+        "type": "i32",
+        "value": -1
+      },
+      "xdr_hex": "00000004ffffffff"
+    },
+    {
+      "name": "i32_min",
+      "note": "SCV_I32 lower bound -2**31",
+      "scval": {
+        "type": "i32",
+        "value": -2147483648
+      },
+      "xdr_hex": "0000000480000000"
+    },
+    {
+      "name": "u64_max",
+      "note": "SCV_U64 discriminant 5 upper bound",
+      "scval": {
+        "type": "u64",
+        "value": 18446744073709551615
+      },
+      "xdr_hex": "00000005ffffffffffffffff"
+    },
+    {
+      "name": "i64_neg_one",
+      "note": "SCV_I64 discriminant 6, two's complement -1",
+      "scval": {
+        "type": "i64",
+        "value": -1
+      },
+      "xdr_hex": "00000006ffffffffffffffff"
+    },
+    {
+      "name": "i64_min",
+      "note": "SCV_I64 lower bound -2**63",
+      "scval": {
+        "type": "i64",
+        "value": -9223372036854775808
+      },
+      "xdr_hex": "000000068000000000000000"
+    },
+    {
+      "name": "timepoint_zero",
+      "note": "SCV_TIMEPOINT discriminant 7 is a uint64",
+      "scval": {
+        "type": "timepoint",
+        "value": 0
+      },
+      "xdr_hex": "000000070000000000000000"
+    },
+    {
+      "name": "duration_max",
+      "note": "SCV_DURATION discriminant 8 is a uint64",
+      "scval": {
+        "type": "duration",
+        "value": 18446744073709551615
+      },
+      "xdr_hex": "00000008ffffffffffffffff"
+    },
+    {
+      "name": "u128_one",
+      "note": "UInt128Parts {hi, lo}, value 1 -> hi=0 lo=1",
+      "scval": {
+        "type": "u128",
+        "value": 1
+      },
+      "xdr_hex": "0000000900000000000000000000000000000001"
+    },
+    {
+      "name": "u128_max",
+      "note": "UInt128Parts upper bound 2**128-1",
+      "scval": {
+        "type": "u128",
+        "value": 340282366920938463463374607431768211455
+      },
+      "xdr_hex": "00000009ffffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "i128_neg_one",
+      "note": "Int128Parts {int64 hi, uint64 lo}; -1 -> hi=-1 lo=2**64-1",
+      "scval": {
+        "type": "i128",
+        "value": -1
+      },
+      "xdr_hex": "0000000affffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "i128_min",
+      "note": "Int128Parts lower bound -2**127 -> hi=-2**63 lo=0",
+      "scval": {
+        "type": "i128",
+        "value": -170141183460469231731687303715884105728
+      },
+      "xdr_hex": "0000000a80000000000000000000000000000000"
+    },
+    {
+      "name": "u256_max",
+      "note": "UInt256Parts {hi_hi, hi_lo, lo_hi, lo_lo} all 2**64-1",
+      "scval": {
+        "type": "u256",
+        "value": 115792089237316195423570985008687907853269984665640564039457584007913129639935
+      },
+      "xdr_hex": "0000000bffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "i256_neg_one",
+      "note": "Int256Parts {int64 hi_hi, 3x uint64}; -1 -> all ones",
+      "scval": {
+        "type": "i256",
+        "value": -1
+      },
+      "xdr_hex": "0000000cffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "bytes_empty",
+      "note": "SCV_BYTES discriminant 13, zero-length opaque, no padding",
+      "scval": {
+        "type": "bytes",
+        "value": ""
+      },
+      "xdr_hex": "0000000d00000000"
+    },
+    {
+      "name": "bytes_three_needs_padding",
+      "note": "3-byte opaque is padded with one zero byte to a 4-byte boundary",
+      "scval": {
+        "type": "bytes",
+        "value": "010203"
+      },
+      "xdr_hex": "0000000d0000000301020300"
+    },
+    {
+      "name": "bytes_32_no_padding",
+      "note": "32-byte opaque needs no padding",
+      "scval": {
+        "type": "bytes",
+        "value": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      },
+      "xdr_hex": "0000000d00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "string_empty",
+      "note": "SCV_STRING discriminant 14, zero-length",
+      "scval": {
+        "type": "string",
+        "value": ""
+      },
+      "xdr_hex": "0000000e00000000"
+    },
+    {
+      "name": "string_two_needs_padding",
+      "note": "'hi' is 2 bytes -> 2 zero pad bytes",
+      "scval": {
+        "type": "string",
+        "value": "hi"
+      },
+      "xdr_hex": "0000000e0000000268690000"
+    },
+    {
+      "name": "string_utf8_multibyte",
+      "note": "'h\u00e9llo' is 6 UTF-8 bytes -> 2 zero pad bytes",
+      "scval": {
+        "type": "string",
+        "value": "h\u00e9llo"
+      },
+      "xdr_hex": "0000000e0000000668c3a96c6c6f0000"
+    },
+    {
+      "name": "symbol_short",
+      "note": "SCV_SYMBOL discriminant 15, 'abc' is 3 bytes -> 1 pad byte",
+      "scval": {
+        "type": "symbol",
+        "value": "abc"
+      },
+      "xdr_hex": "0000000f0000000361626300"
+    },
+    {
+      "name": "symbol_at_limit",
+      "note": "SCSYMBOL_LIMIT is 32; a 32-byte symbol needs no padding",
+      "scval": {
+        "type": "symbol",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "xdr_hex": "0000000f000000206161616161616161616161616161616161616161616161616161616161616161"
+    },
+    {
+      "name": "vec_null",
+      "note": "SCV_VEC discriminant 16; SCVec* absent is a zero present-flag",
+      "scval": {
+        "type": "vec",
+        "value": null
+      },
+      "xdr_hex": "0000001000000000"
+    },
+    {
+      "name": "vec_empty",
+      "note": "SCVec* present with a zero element count -- distinct from vec_null",
+      "scval": {
+        "type": "vec",
+        "value": []
+      },
+      "xdr_hex": "000000100000000100000000"
+    },
+    {
+      "name": "vec_mixed",
+      "note": "a vec of two ScVals, each carrying its own discriminant",
+      "scval": {
+        "type": "vec",
+        "value": [
+          {
+            "type": "u32",
+            "value": 1
+          },
+          {
+            "type": "bool",
+            "value": true
+          }
+        ]
+      },
+      "xdr_hex": "00000010000000010000000200000003000000010000000000000001"
+    },
+    {
+      "name": "vec_nested",
+      "note": "vecs recurse: an inner vec is a full ScVal inside the outer one",
+      "scval": {
+        "type": "vec",
+        "value": [
+          {
+            "type": "vec",
+            "value": [
+              {
+                "type": "symbol",
+                "value": "x"
+              }
+            ]
+          }
+        ]
+      },
+      "xdr_hex": "0000001000000001000000010000001000000001000000010000000f0000000178000000"
+    },
+    {
+      "name": "map_null",
+      "note": "SCV_MAP discriminant 17; SCMap* absent",
+      "scval": {
+        "type": "map",
+        "value": null
+      },
+      "xdr_hex": "0000001100000000"
+    },
+    {
+      "name": "map_empty",
+      "note": "SCMap* present with a zero entry count -- distinct from map_null",
+      "scval": {
+        "type": "map",
+        "value": []
+      },
+      "xdr_hex": "000000110000000100000000"
+    },
+    {
+      "name": "map_one_entry",
+      "note": "SCMapEntry {ScVal key; ScVal val}; key 'a' (symbol) -> val 7 (u32)",
+      "scval": {
+        "type": "map",
+        "value": [
+          {
+            "key": {
+              "type": "symbol",
+              "value": "a"
+            },
+            "val": {
+              "type": "u32",
+              "value": 7
+            }
+          }
+        ]
+      },
+      "xdr_hex": "0000001100000001000000010000000f00000001610000000000000300000007"
+    },
+    {
+      "name": "map_two_entries",
+      "note": "two SCMapEntry records concatenated in order",
+      "scval": {
+        "type": "map",
+        "value": [
+          {
+            "key": {
+              "type": "symbol",
+              "value": "a"
+            },
+            "val": {
+              "type": "u32",
+              "value": 1
+            }
+          },
+          {
+            "key": {
+              "type": "symbol",
+              "value": "b"
+            },
+            "val": {
+              "type": "u32",
+              "value": 2
+            }
+          }
+        ]
+      },
+      "xdr_hex": "0000001100000001000000020000000f000000016100000000000003000000010000000f00000001620000000000000300000002"
+    },
+    {
+      "name": "address_account",
+      "note": "SC_ADDRESS_TYPE_ACCOUNT (0) wraps AccountID = PublicKey: a KEY_TYPE_ED25519 (0) discriminant then uint256[32]",
+      "scval": {
+        "type": "address",
+        "value": {
+          "type": "account",
+          "ed25519": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "xdr_hex": "0000001200000000000000001111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "name": "address_contract",
+      "note": "SC_ADDRESS_TYPE_CONTRACT (1) wraps ContractID = Hash = opaque[32], a fixed 32 bytes with no length prefix",
+      "scval": {
+        "type": "address",
+        "value": {
+          "type": "contract",
+          "contract_id": "5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      },
+      "xdr_hex": "00000012000000015555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ]
+}

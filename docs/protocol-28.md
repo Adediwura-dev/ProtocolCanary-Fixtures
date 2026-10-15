@@ -198,6 +198,156 @@ on 2026-09-02.
 semantics specifically (see above) — this fixture is a general Protocol 28
 Soroban-pipeline smoke test, not a CAP-specific one.
 
+## Soroban simulation error fixtures
+
+Added 2026-10-15. The four `soroban/p28-soroban-sim-error-*.toml` fixtures
+assert the *failure* side of the same pipeline the smoke test above asserts the
+success side of: that `simulateTransaction` reports a broken invocation as a
+typed host error in `result.error`, rather than as a transport-level JSON-RPC
+error or as a silent success.
+
+| Fixture | Condition | `result.error` observed |
+| --- | --- | --- |
+| `p28-soroban-sim-error-unknown-function` | SEP-41 function the SAC does not export | `HostError: Error(Value, InvalidInput)` |
+| `p28-soroban-sim-error-missing-contract` | valid CONTRACT strkey with no stored instance | `HostError: Error(Storage, MissingValue)` |
+| `p28-soroban-sim-error-arg-count` | `transfer()` with zero arguments instead of three | `HostError: Error(Context, UnexpectedSize)` |
+| `p28-soroban-sim-error-arg-type` | `transfer()` with symbols in both address positions | `HostError: Error(Value, UnexpectedType)` |
+
+Each `(type, code)` pair is a real `SCErrorType`/`SCErrorCode` member from
+`Stellar-contract.x` at `stellar/stellar-xdr` `v28.0`, rendered the way
+soroban-env-host renders it. `tests/test_sim_error_fixtures.py` derives those
+spellings from the enum names and asserts every fixture's `message_contains`
+against them, so an invented or typo'd error name cannot be committed. Only the
+stable `Error(<type>, <code>)` form is asserted; the diagnostic-event wording
+the host attaches ("symbol not found in slice of strs", "wrong number of args to
+func", …) is host-internal and free to change, and is recorded in the fixture
+headers for a reader but never pinned.
+
+### How the observations were made
+
+`stellar-canary` could not be used to collect these observations. Building
+`Protocol-Canary` on the authoring machine fails at the link step — the toolchain
+pin resolves, but neither an MSVC `link.exe` nor binutils `dlltool` is present, so
+no Rust binary can be produced there. Rather than record unverified expectations,
+the transaction envelopes were constructed directly from the XDR definitions and
+posted to `simulateTransaction` with a short standard-library script, matching
+`canary-soroban`'s `build_invoke_transaction_envelope` field for field:
+`MuxedAccount::Ed25519`, `fee = 100`, the fixture's `sequence_number`,
+`Preconditions::None`, `Memo::None`, one `Operation` with
+`source_account = None` and body `InvokeHostFunction` →
+`HostFunction::InvokeContract`, an empty `auth` vector, `TransactionExt::V0`,
+envelope type `ENVELOPE_TYPE_TX`, no signatures.
+
+That method is only as trustworthy as the envelope it builds, so a **positive
+control was run first**: the same script invoking SEP-41 `name()` on the native
+SAC returned `error: null` with `results[0].xdr` of `AAAADgAAAAZuYXRpdmUAAA==`,
+which decodes to the `ScVal` symbol `native`, and `decimals()` returned
+`AAAAAwAAAAc=`, which decodes to `ScVal` u32 `7`. Those are the same values
+`p28-soroban-native-asset-name.toml` records as verified through the real CLI on
+2026-09-02, so the harness reproduces a known-good result and the four error
+observations below it are evidence rather than predictions.
+
+The observations are dated 2026-10-15 UTC against
+`https://soroban-testnet.stellar.org`. As described in [Live networks that
+report a newer protocol](#live-networks-that-report-a-newer-protocol), that
+endpoint reported protocol 29 at the time while this pack targets protocol 28;
+`stellar-canary check --protocol 28` treats the mismatch as a warning and
+proceeds, and the four host errors above are properties of the contract
+interface rather than of the protocol version, but the caveat applies to these
+fixtures exactly as it does to the existing ones.
+
+### What this suite does not cover, and why
+
+- **Contract panics and contract-defined error codes.** `SCErrorType` has a
+  tenth member, `SCE_CONTRACT`, which carries a user-defined `uint32` instead of
+  an `SCErrorCode`; a WASM trap produces `Error(WasmVm, …)` from code this
+  repository does not ship. Reaching either needs a deployed contract, and
+  "a request for `Protocol-Canary` to submit a real, state-changing transaction"
+  is listed in [What this pack does not check, generally](#what-this-pack-does-not-check-generally)
+  as something that never belongs in a fixture. The gap is deliberate and
+  guarded: `test_no_fixture_claims_a_contract_defined_error` fails if a fixture
+  ever asserts a `Contract` error without one being deployable. Issue #302 asks
+  for panic and contract-error-code coverage; it is not delivered here.
+- **Resource limits.** An `SCE_BUDGET` error needs a call that exhausts an
+  instruction or memory footprint limit, which cannot be constructed against the
+  reserved SAC and would in any case be an assertion about resource estimation —
+  see [Soroban simulation auth and resource estimation](#soroban-simulation-auth-and-resource-estimation)
+  below for why this pack has no resource-estimation fixtures at all.
+
+## Soroban simulation auth and resource estimation
+
+Added 2026-10-15. Issues [#300](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/300)
+(F-043) and [#301](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/301)
+(F-044) ask this pack for fixtures asserting on the `auth` array a
+`simulateTransaction` response carries (`SorobanAuthorizationEntry`, root
+invocation, address credentials) and on its resource-estimation fields
+(`minResourceFee`, `transactionData`, CPU and memory instructions).
+
+**What this pack tests.** Nothing, yet. As with CAP-0086 above, this is a
+deliberate, documented gap rather than an oversight.
+
+**Why there is no fixture.** Neither assertion is expressible in the fixture
+contract this repository is required to mirror. Read against
+`StellarCanary/Protocol-Canary` at commit
+`2a88756536e2a8fbb3bae475ca1ec0e0c69f2f9c`:
+
+- `canary-rpc`'s `SimulationResponse` (`crates/canary-rpc/src/models.rs`) has
+  exactly four fields — `latest_ledger`, `error`, `transaction_data`,
+  `min_resource_fee` — and **no `auth` field**. The `auth` array RPC returns is
+  dropped during deserialization, so there is nothing downstream for a fixture to
+  assert on. This is precisely what upstream issue
+  [#517](https://github.com/StellarCanary/Protocol-Canary/issues/517) (E-119,
+  "Parse and Assert Simulation Auth Structures in canary-soroban") exists to fix,
+  and it was still open at the time of writing — itself depending on
+  [#427](https://github.com/StellarCanary/Protocol-Canary/issues/427),
+  [#428](https://github.com/StellarCanary/Protocol-Canary/issues/428) and
+  [#504](https://github.com/StellarCanary/Protocol-Canary/issues/504).
+- `SorobanAssertion` (`crates/canary-soroban/src/runner.rs`) has exactly two
+  variants, `SimulationSuccess` and `SimulationError { message_contains }`. Its
+  `From` impl rejects any other `expect.kind` with
+  `unsupported expectation kind`, and rejects any key inside `[expect]` other
+  than `kind` and `message_contains` before the kind is even read.
+  `Protocol-Canary`'s own `docs/fixture-contract.md` states the same two kinds.
+- `min_resource_fee` and `transaction_data` *are* deserialized, but the only
+  places either name occurs in that workspace are the `SimulationResponse` field
+  declarations and `"transactionData"` inside test JSON literals — no production
+  code reads them, so even the fields that survive parsing are not reachable from
+  an assertion.
+
+**Why this repository does not extend its own schema to cover them.** Issue #301
+asks for `schemas/fixture-v1.schema.json` and `tools/validate/validate.py` to
+learn a resource-estimation assertion kind. Doing that here would invert the
+ownership rule in [`../CONTRIBUTING.md`](../CONTRIBUTING.md#fixture-schema):
+that schema "is a convenience JSON Schema mirroring that contract … if the two
+ever disagree, `Protocol-Canary`'s implementation wins and this repository's
+schema/validator must be corrected to match — never the other way around", and
+an unsupported assertion is to be added here "only … once that support exists
+and is released".
+
+It would also break the pack for every consumer, not just omit a check. In
+`canary-runner`'s scheduler, `SorobanFixture::from_loaded` is called with `?`, so
+a fixture whose `[expect]` the loader cannot parse aborts the whole run as an
+invalid-fixture error (exit 4 per `docs/fixture-contract.md`) rather than being
+skipped. Declaring `required_capabilities` would not rescue it either: that filter
+does run first, but `Capability` is a closed five-member enum
+(`soroban-contract`, `rpc-client`, `stellar-sdk-dependency`, `wasm-artifact`,
+`raw-ledger-access`) with no member meaning "auth assertions" or "resource
+estimation", so borrowing one would misdescribe the fixture to get it skipped.
+
+**What closes the gap.** For `auth`, upstream
+[#517](https://github.com/StellarCanary/Protocol-Canary/issues/517) landing and
+being released. For resource estimation, an equivalent extension of
+`SorobanAssertion` (sequenced alongside or after #517, as #301 itself notes) plus
+[#504](https://github.com/StellarCanary/Protocol-Canary/issues/504) (E-110,
+still open). Once either exists in a released `Protocol-Canary`, the fixture,
+schema and validator changes follow the ordinary
+[Adding a fixture](../CONTRIBUTING.md#adding-a-fixture) steps.
+
+**Source.** `StellarCanary/Protocol-Canary` at
+`2a88756536e2a8fbb3bae475ca1ec0e0c69f2f9c`: `crates/canary-rpc/src/models.rs`,
+`crates/canary-soroban/src/runner.rs`, `crates/canary-runner/src/scheduler.rs`,
+`crates/canary-core/src/model.rs`, `docs/fixture-contract.md`.
+
 ## What this pack does not check, generally
 
 - **Anything about a specific downstream application** beyond whether the

@@ -60,6 +60,11 @@ RPC_ASSERT_KINDS = {"field-exists", "field-absent", "field-type", "field-equals"
 # sync with the `expected_type` enum in schemas/fixture-v1.schema.json.
 RPC_ASSERT_TYPES = {"string", "number", "bool", "object", "array", "null"}
 SOROBAN_EXPECT_KINDS = {"simulation-success", "simulation-error"}
+# Keys canary-soroban accepts inside a soroban fixture's [expect] table. It
+# rejects anything else outright (see the `unknown_body_keys(expect, ...)` call
+# in canary-soroban/src/runner.rs), so this mirrors the loader rather than
+# tightening it.
+SOROBAN_EXPECT_FIELDS = ("kind", "message_contains")
 # Set of kebab-case capability strings a fixture may list in
 # `required_capabilities`. Must be kept in sync with
 # canary_core::Capability in StellarCanary/Protocol-Canary, whose
@@ -507,12 +512,49 @@ def validate_soroban_body(fx: Fixture, report: Report) -> None:
     if not isinstance(expect, dict):
         report.error(path, "'expect' must be a table")
         return
+
+    # canary-soroban rejects an unrecognized key inside [expect], so a
+    # misspelled `message_contain` is a loader error rather than a silently
+    # weaker assertion. Mirroring that here means `make validate` catches the
+    # typo instead of passing a fixture that only fails when someone runs it.
+    unknown_expect_keys = sorted(set(expect) - set(SOROBAN_EXPECT_FIELDS))
+    if unknown_expect_keys:
+        report.error(
+            path,
+            f"unexpected key(s) {', '.join(repr(k) for k in unknown_expect_keys)} in "
+            f"'expect'; canary-soroban accepts only {list(SOROBAN_EXPECT_FIELDS)}",
+        )
+
     kind = expect.get("kind")
     if kind not in SOROBAN_EXPECT_KINDS:
         report.error(
             path,
             f"expect.kind must be one of {sorted(SOROBAN_EXPECT_KINDS)}, got {kind!r}",
         )
+
+    # `message_contains` is genuinely optional: canary-soroban models it as
+    # Option<String>, so a simulation-error fixture may assert only that the
+    # simulation failed. But when it *is* present it has to be a usable needle.
+    # The loader reads it with `.and_then(toml::Value::as_str)`, which turns a
+    # non-string into None, and `str::contains("")` is always true -- either
+    # way the fixture silently asserts less than it appears to. That is the trap
+    # this closes; schemas/fixture-v1.schema.json already declares the field a
+    # string, so this brings the validator in line with the schema.
+    if "message_contains" in expect:
+        needle = expect["message_contains"]
+        if not isinstance(needle, str):
+            report.error(
+                path,
+                f"expect.message_contains must be a string, got {type(needle).__name__}; "
+                "canary-soroban ignores a non-string value, which would silently weaken "
+                "the assertion to 'the simulation failed'",
+            )
+        elif not needle:
+            report.error(
+                path,
+                "expect.message_contains must not be empty; an empty needle matches every "
+                "error message, so the assertion would be no stronger than omitting it",
+            )
 
 
 def validate_body(fx: Fixture, report: Report) -> None:
