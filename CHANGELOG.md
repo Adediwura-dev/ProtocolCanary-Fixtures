@@ -60,9 +60,36 @@ discussion and diff. New entries must include that link; see
   `tools/validate/validate.py` accepts — the documentation leg
   `schema_sync.py` does not cover, and the drift that issue #162 was about.
   ([PR #236])
+- `tools/registry/generate.py`, the generator for a pack's `registry-v1.json`
+  (CF-02-B): every fixture and referenced payload hashed with SHA-256 over
+  the raw bytes, fixtures sorted by `id` and payloads by `path`, and the
+  `packDigest`, validated against `schemas/registry-v1.schema.json` before it
+  is written. An invalid pack (symbolic link, escaping payload, names that
+  differ only by case) fails without writing anything. `make registry`
+  writes `PACK/registry-v1.json`; the generated file is not committed yet
+  (CF-02-E). Adds `tools/validate/jsonschema_lite.py`, a standard-library
+  JSON Schema validator that rejects any keyword it does not implement.
+  ([PR #306])
+- `upstream-matrix.json` and `schemas/upstream-matrix.json`: a machine-readable
+  map from Protocol 28 and 29 to the semver range of the Stellar Core,
+  `soroban-rpc` and `rs-soroban-env` releases that belong to each. ([PR #306])
+- `docs/upstream-matrix.md`, linked from the README: the Stellar Core, Stellar
+  RPC, Stellar Horizon and Soroban host environment release and commit for
+  Protocol 28 and 29 on Testnet and Mainnet, and the network passphrases,
+  with `tests/test_upstream_matrix_docs.py` keeping the page and the matrix
+  in agreement. ([PR #306])
 
 ### Changed
 
+- `source_reference` must now be a CAP identifier (`CAP-0083`) or an absolute
+  `https://` URL, and a `github.com` or `raw.githubusercontent.com` link must
+  name a full commit SHA or a release tag, not a branch. Free text, relative
+  links, `http://` and URLs with credentials are rejected, with a message
+  that says what to change. The same pattern is in
+  `schemas/fixture-v1.schema.json`, and `schema_sync.py` fails when the two
+  differ. The four CAP-0083 and CAP-0085 fixtures that cited
+  `.../blob/master/...` now cite commit `9cd7030`, whose files are identical;
+  no fixture ID or expected value changed. ([PR #306])
 - The structural validator now rejects an empty-string `description`,
   matching `schemas/fixture-v1.schema.json`'s `minLength: 1` and the
   existing `id`/`category` checks; a regression test covers the case.
@@ -171,7 +198,7 @@ discussion and diff. New entries must include that link; see
 <!-- Link definitions: the pull request or commit that introduced each
      entry above. Commits listed here were pushed directly to `main`
      without a pull request; PR #97, PR #143, PR #176, PR #219, PR #231,
-     PR #232, PR #236 and PR #252 are the [Unreleased] entries that
+     PR #232, PR #236, PR #252 and PR #306 are the [Unreleased] entries that
      originated from pull requests. -->
 
 [757e1e7]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/757e1e777489bb5c20e7500b245370de227c66b3
@@ -193,3 +220,4 @@ discussion and diff. New entries must include that link; see
 [PR #232]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/232
 [PR #236]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/236
 [PR #252]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/252
+[PR #306]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/306
