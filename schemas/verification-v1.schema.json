@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/StellarCanary/ProtocolCanary-Fixtures/main/schemas/verification-v1.schema.json",
+  "title": "Protocol Canary verification record (verificationVersion 1)",
+  "description": "A structured verification record per CF-04 section 3 (Protocol 29 boundary). Network fields are conditional: required for live verification methods, optional or null for offline methods.",
+  "type": "object",
+  "required": ["verificationVersion", "fixtureId", "fixtureSha256", "method", "checkedAt", "verifier", "outcome"],
+  "additionalProperties": false,
+  "properties": {
+    "verificationVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "fixtureId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixtureSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "method": {
+      "type": "string",
+      "enum": ["structural", "source-checked", "live-read-only", "live-simulation"]
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "verifier": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["matched", "mismatched"]
+    },
+    "network": {
+      "type": ["object", "null"],
+      "required": ["name", "passphrase", "observedProtocol"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "passphrase": {"type": "string", "minLength": 1},
+        "observedProtocol": {"type": "integer", "minimum": 0}
+      }
+    },
+    "endpointHost": {
+      "type": ["string", "null"],
+      "pattern": "^[^/:?#@]+$"
+    },
+    "evidenceRef": {
+      "type": ["string", "null"],
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "description": "Live methods require network evidence; offline methods leave network, endpointHost and evidenceRef optional or null (see their type declarations).",
+      "if": {"properties": {"method": {"enum": ["live-read-only", "live-simulation"]}}},
+      "then": {"required": ["network", "endpointHost"]}
+    }
+  ]
+}
