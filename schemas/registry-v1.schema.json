@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/StellarCanary/ProtocolCanary-Fixtures/main/schemas/registry-v1.schema.json",
+  "title": "Protocol Canary registry manifest (registryVersion 1)",
+  "description": "A protocol pack registry manifest per CF-02 section 3. The fixtures array must be ordered by id; ordering is enforced by the pack loader, not by this schema (JSON Schema cannot assert cross-element ordering).",
+  "$comment": "Ordering of fixtures[].id is a loader-side invariant, like additionalProperties handling in tools/validate/validate.py.",
+  "type": "object",
+  "required": ["registryVersion", "protocol", "fixtures", "packDigest"],
+  "additionalProperties": false,
+  "properties": {
+    "registryVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "protocol": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "sha256", "surface", "category", "description", "payloads"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "pattern": "\\.toml$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "surface": {"type": "string", "enum": ["xdr", "rpc", "soroban"]},
+          "category": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "payloads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "sha256"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          "sourceReference": {"type": "string", "minLength": 1},
+          "requiredCapabilities": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "packDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
