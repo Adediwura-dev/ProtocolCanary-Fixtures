@@ -86,7 +86,9 @@ near a day boundary ambiguous by up to a day, defeating that purpose.
    (`.github/workflows/validate.yml`), so that exit code is what CI
    treats as pass/fail — any error fails the workflow on your PR. In
    particular, a missing `source_reference` (step 2) is an error, so it
-   fails CI rather than passing with a printed advisory.
+   fails CI rather than passing with a printed advisory. Add
+   `--format json` for the same run as a single JSON document on stdout
+   (see [README.md](README.md#validation)); the exit codes are unchanged.
 7. **Add/update documentation**: the relevant `docs/protocol-NN.md` table
    and, if you added a new CAP or surface, the pack's `README.md`.
 8. **Run the repository tests**: `make test` — or

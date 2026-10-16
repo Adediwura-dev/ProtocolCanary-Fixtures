@@ -223,6 +223,22 @@ check itself. CI (`.github/workflows/validate.yml`) runs it, plus
 `python3 -m unittest discover tests` and a fixtures-badge freshness check,
 on every push and pull request.
 
+Pass `--format json` to get the same run as one machine-readable document on
+stdout, with nothing on stderr, so CI and other tooling can ingest it
+directly; the exit code is unchanged (0 if every fixture is valid, 1
+otherwise) and `valid` mirrors it. `--quiet` affects only the default text
+format.
+
+```bash
+python3 tools/validate/validate.py --format json | jq '.summary'
+```
+
+The document is `{"valid": bool, "errors": [...], "warnings": [...],
+"summary": {...}}`, where each diagnostic is `{"path", "id", "line",
+"message"}`. `line` is the fixture's 1-based line number when the validator
+can attribute one (a TOML syntax error, or a located top-level field) and
+`null` otherwise — it is never guessed.
+
 [`schemas/fixture-v1.schema.json`](schemas/fixture-v1.schema.json) is this
 repository's editor-facing mirror of the validator's rules. It is kept
 honest by [`tools/validate/schema_sync.py`](tools/validate/schema_sync.py),

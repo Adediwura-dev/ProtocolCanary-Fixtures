@@ -8,6 +8,7 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -1095,6 +1096,205 @@ class QuietFlagTests(unittest.TestCase):
         self.assertNotIn("warning:", out)
         self.assertIn("OK:", out)
         self.assertEqual(code, 0)
+
+
+class JsonFormatTests(unittest.TestCase):
+    """`--format json` prints one machine-readable report on stdout (F-023).
+
+    The JSON document is the CLI's contract with automated consumers — CI
+    jobs and tooling — so these tests exercise ``validate.main`` (the entry
+    point such a consumer runs) and parse its stdout the way a pipeline
+    would, rather than calling ``build_json_report`` directly and trusting
+    the printing path to agree with it.
+    """
+
+    def run_json(self, argv: list[str]) -> tuple[int, dict, str, str]:
+        """Run ``validate.main(argv)``; return exit code, parsed document, stdout, stderr."""
+        code, out, err = run_main(argv)
+        return code, json.loads(out), out, err
+
+    def test_valid_run_emits_the_documented_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", VALID_XDR)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 0)
+        # A machine consumer reads the outcome from stdout alone: the JSON
+        # document is the whole of it, and nothing goes to stderr.
+        self.assertEqual(err, "")
+        self.assertEqual(list(document), ["valid", "errors", "warnings", "summary"])
+        self.assertIs(document["valid"], True)
+        self.assertEqual(document["errors"], [])
+        self.assertEqual(document["warnings"], [])
+        self.assertEqual(
+            document["summary"],
+            {"roots": [tmp], "fixtures": 1, "errors": 0, "warnings": 0},
+        )
+
+    def test_invalid_run_exits_1_and_reports_valid_false(self) -> None:
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        # `valid` must mirror the exit code, not merely correlate with it.
+        self.assertEqual(code, 1)
+        self.assertIs(document["valid"], False)
+        self.assertEqual(err, "")
+        self.assertTrue(document["errors"])
+        self.assertEqual(document["summary"]["errors"], len(document["errors"]))
+        self.assertEqual(document["summary"]["warnings"], len(document["warnings"]))
+
+    def test_error_diagnostic_carries_path_id_line_and_message(self) -> None:
+        # Negative case called for by the issue: a validation error must come
+        # back as JSON naming the file, the line and the reason, not as prose.
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        diagnostic = document["errors"][0]
+        self.assertEqual(list(diagnostic), ["path", "id", "line", "message"])
+        self.assertEqual(diagnostic["path"], str(path))
+        self.assertEqual(diagnostic["id"], "p28-xdr-cap83-example")
+        # `surface` is the fourth line of VALID_XDR, which opens with a blank line.
+        self.assertEqual(diagnostic["line"], 4)
+        self.assertIn("field 'surface' must be one of", diagnostic["message"])
+        self.assertIn("'wallet'", diagnostic["message"])
+
+    def test_line_is_null_when_the_validator_cannot_locate_it(self) -> None:
+        # A missing field has no line to point at, and the documented contract
+        # is that an unknown line is reported as null rather than guessed.
+        bad = VALID_XDR.replace('type = "StellarValue"\n', "")
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        matching = [
+            e for e in document["errors"] if "missing required field 'type'" in e["message"]
+        ]
+        self.assertEqual(len(matching), 1, document["errors"])
+        self.assertIsNone(matching[0]["line"])
+
+    def test_malformed_toml_reports_the_parser_line(self) -> None:
+        # A TOML syntax error is one of the two places a line is genuinely
+        # known, so it must be reported rather than left null.
+        bad = VALID_XDR.replace('surface = "xdr"', "surface = ")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        diagnostic = document["errors"][0]
+        self.assertEqual(diagnostic["path"], str(path))
+        self.assertTrue(diagnostic["message"].startswith("invalid TOML:"), diagnostic)
+        self.assertEqual(diagnostic["line"], 4)
+
+    def test_special_characters_in_a_message_are_escaped_and_round_trip(self) -> None:
+        # The characters that would break a hand-formatted report: a double
+        # quote, a backslash (0x5C) and a newline. TOML and JSON basic strings
+        # share the same escape rules, so json.dumps renders a valid TOML
+        # literal for a value that carries all three.
+        needle = 'bad"quote' + chr(92) + 'slash' + chr(10) + 'nl'
+        bad = VALID_XDR.replace('surface = "xdr"', "surface = " + json.dumps(needle))
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        message = document["errors"][0]["message"]
+        # The validator renders an offending value with repr(), so the quote
+        # and the backslash both reach the message and the newline becomes the
+        # two characters the repr spells out -- all of which JSON escape again.
+        self.assertTrue(message.endswith("got " + repr(needle)), repr(message))
+        # Escaped on the wire rather than embedded literally -- a bare newline
+        # would end the JSON string early -- so the document text carries
+        # JSON's escaping of the same characters, and json.loads (above) is
+        # what proves the result is still one parseable document.
+        self.assertIn(json.dumps(repr(needle))[1:-1], out)
+
+    def test_quiet_does_not_suppress_warnings_in_the_json_report(self) -> None:
+        # `--quiet` is a text-format convenience; a machine consumer decides
+        # what to do with warnings, so the JSON document always carries them.
+        real = validate.validate_directory
+
+        def wrapper(root: Path) -> "validate.Report":
+            report = real(root)
+            report.warning(Path(root) / "injected.toml", "injected warning")
+            return report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", VALID_XDR)
+            with mock.patch.object(validate, "validate_directory", side_effect=wrapper):
+                code, document, out, err = self.run_json(["--quiet", "--format", "json", tmp])
+        # A warning is not an error: the run still exits 0 with valid true.
+        self.assertEqual(code, 0)
+        self.assertIs(document["valid"], True)
+        self.assertEqual(len(document["warnings"]), 1, document)
+        self.assertEqual(document["warnings"][0]["message"], "injected warning")
+        self.assertEqual(document["warnings"][0]["path"], str(Path(tmp) / "injected.toml"))
+        self.assertEqual(document["summary"]["warnings"], 1)
+        self.assertEqual(err, "")
+
+    def test_summary_counts_every_root_and_fixture(self) -> None:
+        bad = VALID_XDR.replace(
+            'id = "p28-xdr-cap83-example"', 'id = "p28-xdr-cap83-bad"'
+        ).replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            write(Path(tmp1), "a.toml", VALID_XDR)
+            write(Path(tmp1), "xdr/b.toml", bad)
+            write(Path(tmp2), "c.toml", VALID_SOROBAN)
+            code, document, out, err = self.run_json(["--format", "json", tmp1, tmp2])
+        self.assertEqual(code, 1)
+        self.assertEqual(document["summary"]["roots"], [tmp1, tmp2])
+        # Both roots are discovered recursively, including the nested file.
+        self.assertEqual(document["summary"]["fixtures"], 3)
+        self.assertEqual(document["summary"]["errors"], 1)
+        self.assertEqual(document["summary"]["errors"], len(document["errors"]))
+
+    def test_non_directory_root_is_reported_in_the_json_document(self) -> None:
+        code, document, out, err = self.run_json(
+            ["--format", "json", "non-existent-root-for-json-test"]
+        )
+        self.assertEqual(code, 1)
+        self.assertIs(document["valid"], False)
+        self.assertEqual(document["summary"]["fixtures"], 0)
+        self.assertEqual([e["message"] for e in document["errors"]], ["not a directory"])
+        self.assertEqual(err, "")
+
+    def test_encoding_is_deterministic_and_matches_the_documented_form(self) -> None:
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code1, document, out1, err1 = self.run_json(["--format", "json", tmp])
+            code2, _, out2, err2 = self.run_json(["--format", "json", tmp])
+        self.assertEqual((code1, out1), (code2, out2))
+        # Two-space indent and exactly one trailing newline, so two reports can
+        # be diffed and `| jq` sees a complete document.
+        self.assertEqual(out1, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        self.assertTrue(out1.endswith("}\n"), out1)
+
+    def test_text_is_still_the_default_format(self) -> None:
+        # `--format json` is opt-in: the existing human-readable output and its
+        # exit code are unchanged when the flag is absent.
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, out, err = run_main([tmp])
+        self.assertEqual(code, 1)
+        self.assertIn("error:", err)
+        self.assertIn("FAILED: 1 error(s)", err)
+        self.assertNotIn("{", out)
+
+    def test_rejects_an_unknown_format(self) -> None:
+        # An unrecognized format must fail loudly rather than silently falling
+        # back to text, which a CI job expecting JSON would misread.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                validate.main(["--format", "xml", "."])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("invalid choice", stderr.getvalue())
 
 
 class SchemaSyncTests(unittest.TestCase):
