@@ -1,0 +1,46 @@
+{
+  "vector": "standard",
+  "contract": "CF-02",
+  "contractReference": "https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md",
+  "packRoot": "pack",
+  "protocol": 28,
+  "purpose": "A two-fixture pack whose fixture ids and pack-relative paths sort in opposite orders, with payloads and both the empty and non-empty capability cases.",
+  "exercises": [
+    "id order and path order are opposites inside one pack (alpha first by id, last by path)",
+    "two payloads, one named by input_file and one by expected_file, resolved relative to the fixture file",
+    "an explicit empty required_capabilities list, mirrored as [] rather than dropped",
+    "a non-empty required_capabilities list, mirrored as a one-element array"
+  ],
+  "maxDepth": 3,
+  "fixtureIds": [
+    "p28-rpc-cf02-standard-alpha",
+    "p28-xdr-cf02-standard-beta"
+  ],
+  "packFiles": [
+    {
+      "path": "deep/level1/p28-xdr-cf02-standard-beta.toml",
+      "sha256": "baebc3fba3344936704e1292f3a74d110c09b9651d9b127dc65817a894314496",
+      "size": 2160
+    },
+    {
+      "path": "deep/level1/payloads/beta-expected.bin",
+      "sha256": "130e99e08f48dceb6a7e04b715e86276c31ce1ba6fde29bec6b4fdec82e4ff63",
+      "size": 26
+    },
+    {
+      "path": "deep/level1/payloads/beta-input.bin",
+      "sha256": "2f19def54e5419326801f6532d72ae507f5d97c03c4f01126e512cab3c8fce2c",
+      "size": 23
+    },
+    {
+      "path": "shallow/p28-rpc-cf02-standard-alpha.toml",
+      "sha256": "b29bb992e70a0c4c0fc3e5ae101b111179a0a6183d8fd86de6eeaf496775ae10",
+      "size": 1909
+    }
+  ],
+  "packDigest": "sha256:83191069a8cdfab9f1c4d5fc9d1b6695b167c9dc364006e939b36fe6f525de10",
+  "registry": {
+    "file": "expected-registry-v1.json",
+    "sha256": "c70fd64c78f35a42145a7b03458a57898139048477cf9c6f77732e5b3b59930e"
+  }
+}

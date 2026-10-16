@@ -271,6 +271,14 @@ if they sat inside a pack. See
 [`docs/protocol-28.md`](docs/protocol-28.md#the-staged-resource-estimation-corpus)
 for what they assert and what would promote them.
 
+Also outside the packs, for the opposite reason, are
+[`tests/vectors/cf-02/`](tests/vectors/cf-02/): the shared conformance vectors
+for the registry and pack digest contract (CF-02-A). Those packs are ones the
+loader *accepts* — they are kept out of `protocol-*/` because they are contract
+test data rather than protocol fixtures. Three small packs with verified file
+hashes and pack digests, checked offline by
+[`tests/test_cf02_vectors.py`](tests/test_cf02_vectors.py).
+
 ### Fixtures badge
 
 The badge at the top of this file reports the repository's current total

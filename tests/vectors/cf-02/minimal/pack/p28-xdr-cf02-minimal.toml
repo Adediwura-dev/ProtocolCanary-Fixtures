@@ -1,0 +1,43 @@
+# CF-02 conformance vector "minimal": the smallest pack the contract allows.
+#
+# What this file is. Test data for CF-02 (fixture registry and pack digest), not
+# a behavior fixture. It is here so a pack walker and digest implementation can
+# be checked against a known-good pack -- one file, one registry entry, one
+# digest input line -- before it is trusted on a real protocol pack. See
+# ../../README.md for the vector set, and the CF-02 contract linked there for
+# the rules this file exists to pin.
+#
+# Why it still looks like an ordinary fixture. CF-02 section 2 defines pack
+# membership as "every regular *.toml file at any depth", and the registry's
+# fixture set must equal the set the engine's loader would accept. A directory
+# of stub files that only carried registry fields would not be a pack the
+# loader (or tools/validate/validate.py) accepts, so the body below is a real,
+# minimal, structurally valid fixture body instead.
+#
+# Why the body is what it is. The XDR body is incidental to this vector -- the
+# digest covers raw bytes and never decodes them -- but it must be well formed,
+# so it is the smallest one Stellar-contract.x allows: that file declares
+#
+#   enum ContractExecutableType {
+#       CONTRACT_EXECUTABLE_WASM = 0, CONTRACT_EXECUTABLE_STELLAR_ASSET = 1,
+#       CONTRACT_EXECUTABLE_EXTERNAL_REF = 2 };
+#   union ContractExecutable switch (ContractExecutableType type) {
+#       case CONTRACT_EXECUTABLE_WASM: Hash wasm_hash;
+#       case CONTRACT_EXECUTABLE_STELLAR_ASSET: void; ... };
+#
+# so the STELLAR_ASSET arm is the 4-byte discriminant 1 and nothing else --
+# 00 00 00 01, base64 "AAAAAQ==". It is decoded and re-encoded (`roundtrip`),
+# never observed on a network, and no ledger state is read.
+#
+# Reference: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x
+
+id = "p28-xdr-cf02-minimal"
+protocol = 28
+surface = "xdr"
+category = "registry-conformance"
+description = "CF-02 vector: the only fixture in the minimal pack, stored at the pack root"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x"
+
+type = "ContractExecutable"
+kind = "roundtrip"
+value_base64 = "AAAAAQ=="

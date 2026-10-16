@@ -8,14 +8,18 @@ the rules; read the linked contract before implementing anything.
 
 Most of the work below does not exist yet. Until a unit is implemented, the
 current behavior is the one described in the README and `CONTRIBUTING.md`.
-Implemented so far: the registry JSON Schema and the registry generator
-(`tools/registry/generate.py`, `make registry`), which is CF-02-B and
-CF-02-C. The generated `registry-v1.json` is not committed yet: that, and the
-CI freshness check that goes with it, is CF-02-E.
+Implemented so far: the shared conformance vectors (`tests/vectors/cf-02/`,
+checked by `tests/test_cf02_vectors.py`), which is CF-02-A; the registry JSON
+Schema; and the registry generator (`tools/registry/generate.py`,
+`make registry`), which is CF-02-B and CF-02-C. The generated
+`registry-v1.json` is not committed yet: that, and the CI freshness check that
+goes with it, is CF-02-E. Also still open: CF-02-D (the registry validator
+rules), CF-02-F (the Rust pack walker and digest that must match CF-02-A) and
+CF-02-H (`.gitattributes` pinning LF for pack files).
 
 | Contract | What this repository owns |
 |---|---|
-| [CF-02 Registry and pack digest](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md) | The registry generator, the registry JSON Schema, the validator rules and the CI freshness check. Python must agree byte for byte with the Rust implementation in the engine; shared conformance vectors live here. |
+| [CF-02 Registry and pack digest](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md) | The registry generator, the registry JSON Schema, the validator rules and the CI freshness check. Python must agree byte for byte with the Rust implementation in the engine; the shared conformance vectors (CF-02-A) live in [`tests/vectors/cf-02/`](../tests/vectors/cf-02/). |
 | [CF-04 Verification evidence](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-04-verification-evidence.md) | Evidence records for fixtures, the freshness report, and the Protocol 29 boundary text. No Protocol 29 fixture is added without live evidence recorded under that contract. |
 | [CF-06 Canonical fixture releases](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-06-fixture-releases.md) | The deterministic archive builder, the release manifest, the release workflow and the immutability rules. The existing `protocol-28` tag keeps its meaning. |
 | [CF-07 Project detection](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-07-project-roots-and-detection.md) | Only the `required_capabilities` vocabulary: it must match the engine's `Capability` set, enforced by a cross-language test. |

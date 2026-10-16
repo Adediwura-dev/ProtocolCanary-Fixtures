@@ -1,0 +1,40 @@
+# CF-02 conformance vector "complex": the fixture that makes byte order differ
+# from component-wise order.
+#
+# What this file is. Test data for CF-02 (fixture registry and pack digest),
+# not a behavior fixture; see ../../README.md.
+#
+# What it pins. This file sits in `set-b/`, and the pack's fourth fixture sits
+# in `set/a/`. Comparing the two pack-relative paths byte by byte stops at the
+# first differing byte, `-` (0x2D) in `set-b/` against `/` (0x2F) in `set/a/`,
+# so `set-b/...` comes first. Comparing them as sequences of path *components*
+# -- with `set` a prefix of `set-b` -- puts `set/a/...` first instead. CF-02
+# section 4 requires the byte comparison, so the golden digest input in
+# ../../expected.json and ../../expected-registry-v1.json fail a walker that
+# sorts components (for example a Rust implementation that sorts `PathBuf`
+# values with their `Ord`).
+#
+# It also carries a non-ASCII `description` on purpose: the registry and its
+# digest are UTF-8, so an encoder that escaped non-ASCII (`caf\u00e9`) instead
+# of writing it would produce different manifest bytes. That difference is
+# deliberately observable from the golden manifest.
+#
+# The RPC body is incidental and only has to be valid: `get-network` with one
+# assertion naming a field the method always returns, so nothing here asserts a
+# live-varying value.
+#
+# Reference: https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork
+
+id = "p28-rpc-cf02-complex-bravo"
+protocol = 28
+surface = "rpc"
+category = "registry-conformance"
+description = "CF-02 vector: component-wise path order would put set/a first (café, 中文)"
+source_reference = "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork"
+required_capabilities = ["rpc-client"]
+
+method = "get-network"
+
+[[assert]]
+kind = "field-exists"
+field = "passphrase"
