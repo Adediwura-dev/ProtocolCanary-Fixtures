@@ -279,6 +279,13 @@ test data rather than protocol fixtures. Three small packs with verified file
 hashes and pack digests, checked offline by
 [`tests/test_cf02_vectors.py`](tests/test_cf02_vectors.py).
 
+The same arrangement covers
+[`tests/vectors/conformance/`](tests/vectors/conformance/): the cross-language
+fixture-parser conformance corpus (24 accept/reject vectors, one of which is deliberately
+unparseable TOML), which is parser input rather than protocol behavior. It is
+checked by [`tests/test_conformance_vectors.py`](tests/test_conformance_vectors.py),
+and is likewise outside every `protocol-*/` scan root.
+
 ### Fixtures badge
 
 The badge at the top of this file reports the repository's current total

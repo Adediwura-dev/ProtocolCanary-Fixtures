@@ -98,6 +98,24 @@ discussion and diff. New entries must include that link; see
   or provably absent contracts only, the unfunded all-zero source account,
   no live-varying state); and covers the validator's `[expect]` rejections.
   ([PR #308])
+- `tests/vectors/conformance/` and `tests/test_conformance_vectors.py`: the
+  cross-language fixture parser conformance corpus (F-021) — 24 vectors, 12
+  accepted and 12 rejected, covering the XDR, RPC and Soroban surfaces and
+  indexed by `vectors.json`. Every rejected vector names an error code and a
+  diagnostic fragment, and the harness requires the fragment to be both a
+  prefix of that code's documented message and present in the validator's
+  actual report, so a vector cannot claim an error class it does not produce;
+  the rejected half covers missing required and conditional fields, wrong field
+  types, an unknown key inside soroban's closed `[expect]` table, an
+  unsupported RPC method, malformed TOML and a non-base64 payload, while the
+  accepted half covers every assertion kind plus a 1 KiB inline payload and the
+  validator's lower boundaries (`protocol = 1`, `sequence_number = 0`, empty
+  `args`). The vectors assert fixture-format behavior only — the XDR bodies are
+  deliberately placeholder values and nothing is executed or checked against a
+  network — and the harness pins the corpus outside every `protocol-*/` scan
+  root, so the fixture-count badge cannot move. Closes
+  [issue #283](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/283).
+  ([PR #315])
 
 ### Changed
 
@@ -254,8 +272,8 @@ discussion and diff. New entries must include that link; see
 <!-- Link definitions: the pull request or commit that introduced each
      entry above. Commits listed here were pushed directly to `main`
      without a pull request; PR #97, PR #143, PR #176, PR #219, PR #231,
-     PR #232, PR #236, PR #252 and PR #308 are the [Unreleased] entries that
-     originated from pull requests. -->
+     PR #232, PR #236, PR #252, PR #308 and PR #315 are the [Unreleased]
+     entries that originated from pull requests. -->
 
 [757e1e7]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/757e1e777489bb5c20e7500b245370de227c66b3
 [5142110]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/51421106999811666502b2e7da7ae3b9e351fd9c
@@ -277,3 +295,4 @@ discussion and diff. New entries must include that link; see
 [PR #236]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/236
 [PR #252]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/252
 [PR #308]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/308
+[PR #315]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/315
