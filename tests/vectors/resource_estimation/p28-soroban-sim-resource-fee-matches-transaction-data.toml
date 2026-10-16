@@ -1,0 +1,87 @@
+# STAGED FIXTURE -- NOT PART OF THE SHIPPED PROTOCOL-28 PACK. DO NOT MOVE INTO
+# protocol-28/ UNTIL canary-soroban SUPPORTS `simulation-resource-estimate`.
+#
+# See p28-soroban-sim-resource-min-fee-positive.toml's header for why this
+# directory exists instead of protocol-28/soroban/, and for the
+# StellarCanary/Protocol-Canary commit (4d2cb9978127ecd1045b4cca022a4681875d0052)
+# at which `expect.kind = "simulation-resource-estimate"` was verified to be
+# unsupported. The short version: the loader rejects the kind, and canary-runner
+# aborts the whole run (exit 4) on a fixture it cannot parse, so a fixture using
+# it must not sit where the loader scans.
+#
+# What this asserts, once supported. A simulateTransaction response carries the
+# estimated fee twice: as the top-level `minResourceFee` decimal string, and as
+# the `resourceFee` int64 encoded inside the `transactionData`
+# SorobanTransactionData blob a consumer is expected to attach to the real
+# transaction. They must agree. This is the one resource-estimation invariant
+# that is an equality rather than a bound, and it is safe as an equality because
+# it compares two fields of the same response against each other rather than
+# either against a recorded number -- it stays true no matter how fees move.
+#
+# Why it matters. The two fields are produced by different code paths and
+# consumed differently: `minResourceFee` is what a wallet reads to set a fee,
+# while `transactionData` is what it must paste into the transaction for the
+# network to accept it at all. A host that lets them diverge across a protocol
+# upgrade produces transactions that are either rejected for an insufficient fee
+# or accepted while silently overcharging, and neither symptom is visible from a
+# success/failure assertion alone. Asserting the equality turns that into a
+# diagnosable canary failure.
+#
+# Where the expectation comes from. Observed, not guessed, and cross-checked two
+# ways. On 2026-10-16 UTC, simulateTransaction against
+# https://soroban-testnet.stellar.org at ledger 5216960 returned
+# minResourceFee "6126" for `decimals()`. The transactionData recorded below
+# decodes byte-exactly -- 80 bytes in, 80 bytes consumed, no trailing data --
+# to a SorobanTransactionData whose resourceFee is 6126. The same equality held
+# for the `name()` (6143) and `symbol()` (6151) observations taken in the same
+# session and recorded in this directory's two sibling fixtures, so it is a
+# property of the response rather than a coincidence of one call.
+# tests/test_sim_resource_fixtures.py repeats that decode offline against the
+# recorded bytes, so this fixture's claim is checked by CI rather than taken on
+# trust. The XDR field order used by that decode is `ext`, then
+# `resources{footprint{readOnly<>, readWrite<>}, instructions, diskReadBytes,
+# writeBytes}`, then `resourceFee`, per stellar-xdr v28.0's Stellar-transaction.x
+# (the pinned source_reference). Note the CONTRACT_DATA LedgerKey arm carries
+# three fields -- `contract`, `key` and `durability` -- so a decoder that omits
+# `durability` mis-aligns every later offset; that mistake was made and caught
+# while authoring this fixture.
+#
+# Determinism. Nothing is deployed, the source is the all-zero unfunded account,
+# the contract is the reserved network-wide native SAC, and `decimals()` is a
+# pure invocation. The asserted equality depends only on the two fields of one
+# response. The positive control for the envelope is results[0].xdr
+# AAAAAwAAAAc= -- SCValType 3 (SCV_U32), value 7 -- the native asset's 7
+# decimals. The endpoint reported protocolVersion 29 while this pack targets
+# protocol 28 -- see
+# docs/protocol-28.md#live-networks-that-report-a-newer-protocol.
+#
+# [staged_observation] is a staging artifact, not part of the proposed fixture
+# contract. Delete it when this fixture is promoted into protocol-28/soroban/.
+
+id = "p28-soroban-sim-resource-fee-matches-transaction-data"
+protocol = 28
+surface = "soroban"
+category = "resource-estimation"
+description = "The resourceFee encoded in a simulateTransaction response's transactionData equals the same response's minResourceFee, so the fee a wallet reads and the fee it must attach cannot diverge"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-transaction.x"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "decimals"
+sequence_number = 1
+
+# PROPOSED assertion kind. Unsupported by canary-soroban as of the commit named
+# above; see schemas/proposed/simulation-resource-estimate.expect.json.
+[expect]
+kind = "simulation-resource-estimate"
+resource_fee_matches_min_resource_fee = true
+min_resource_fee_at_least = 1
+
+[staged_observation]
+observed_utc = "2026-10-16"
+rpc_endpoint = "https://soroban-testnet.stellar.org"
+latest_ledger = 5216960
+endpoint_protocol_version = 29
+min_resource_fee = "6126"
+transaction_data = "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAAAAGqRQAAAAAAAAAAAAAAAAAAF+4="
+result_xdr = "AAAAAwAAAAc="

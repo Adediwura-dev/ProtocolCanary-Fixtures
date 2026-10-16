@@ -1,0 +1,90 @@
+# STAGED FIXTURE -- NOT PART OF THE SHIPPED PROTOCOL-28 PACK. DO NOT MOVE INTO
+# protocol-28/ UNTIL canary-soroban SUPPORTS `simulation-resource-estimate`.
+#
+# Why this file lives under tests/vectors/ instead of protocol-28/soroban/.
+# `expect.kind = "simulation-resource-estimate"` does not exist. Read against
+# StellarCanary/Protocol-Canary at commit
+# 4d2cb9978127ecd1045b4cca022a4681875d0052, `SorobanAssertion`
+# (crates/canary-soroban/src/runner.rs) has exactly two variants,
+# SimulationSuccess and SimulationError, and its `From` impl rejects any other
+# kind with "unsupported expectation kind". Putting this file where the loader
+# scans would not merely omit a check: canary-runner's scheduler calls
+# `SorobanFixture::from_loaded` with `?`, so one unparseable fixture aborts the
+# entire run as an invalid-fixture error (exit 4) rather than being skipped.
+# CONTRIBUTING.md#fixture-schema says an unsupported assertion may be added here
+# "only ... once that support exists and is released". tools/validate/validate.py
+# and tools/badge/badge.py both scan only protocol-*/, so this directory is
+# invisible to CI's structural checks and to the fixture-count badge.
+# tests/test_sim_resource_fixtures.py is what validates this file instead.
+#
+# What this asserts, once supported. Invoking `name()` on the testnet Stellar
+# Asset Contract for native XLM
+# (CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC) must produce a
+# resource estimate that is present, positive, and representable in the XDR
+# fields that carry it. Every bound below is either a positivity floor or an
+# XDR type width from stellar-xdr v28.0's Stellar-transaction.x --
+# SorobanResources.instructions is uint32, SorobanTransactionData.resourceFee is
+# int64 -- so nothing here encodes a guessed "reasonable" number. This is the
+# boundary shape issue #301 asks for: it fails if a protocol upgrade makes the
+# estimate absent, zero, negative, non-decimal, or too wide for its field, which
+# is exactly the class of regression an upgrade rehearsal needs to catch before
+# a fee estimate is baked into a real transaction.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-16 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org at ledger
+# 5216960 returned minResourceFee "6143" and a transactionData whose
+# SorobanResources.instructions is 116253. Both are recorded verbatim in
+# [staged_observation] below, and tests/test_sim_resource_fixtures.py decodes
+# that transactionData offline and re-checks it against these bounds, so the
+# numbers in the header cannot drift from the numbers in the file. The
+# simulation itself was a positive control: results[0].xdr was
+# AAAADgAAAAZuYXRpdmUAAA== -- SCValType 14 (SCV_STRING), length 6, "native",
+# with two zero pad bytes to the next 4-byte boundary. That is the same
+# `name()` call, source account, contract and sequence number that
+# protocol-28/soroban/p28-soroban-native-asset-name.toml verified as passing on
+# 2026-09-02, so the envelope these observations rest on is one this repository
+# already relies on. The endpoint reported protocolVersion 29 while this pack
+# targets protocol 28 -- see
+# docs/protocol-28.md#live-networks-that-report-a-newer-protocol.
+#
+# Determinism. Nothing is deployed and no ledger state is read: the source is
+# the all-zero unfunded account, the contract is reserved and network-wide, and
+# `name()` is a pure invocation. The asserted quantities are nevertheless
+# live-varying (fees and instruction counts move with network configuration),
+# which is precisely why every assertion is a bound or a type width and none is
+# an equality against an observed value.
+#
+# [staged_observation] is a staging artifact, not part of the proposed fixture
+# contract. It records the single observation these bounds were derived from so
+# a reviewer can check them, and so the offline test can re-decode real bytes.
+# Delete it when this fixture is promoted into protocol-28/soroban/.
+
+id = "p28-soroban-sim-resource-min-fee-positive"
+protocol = 28
+surface = "soroban"
+category = "resource-estimation"
+description = "simulateTransaction returns a resource estimate for a Stellar Asset Contract read that is present, positive, and within the XDR widths of SorobanResources.instructions and SorobanTransactionData.resourceFee"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-transaction.x"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "name"
+sequence_number = 1
+
+# PROPOSED assertion kind. Unsupported by canary-soroban as of the commit named
+# above; see schemas/proposed/simulation-resource-estimate.expect.json.
+[expect]
+kind = "simulation-resource-estimate"
+min_resource_fee_at_least = 1
+min_resource_fee_at_most = 9223372036854775807
+instructions_at_least = 1
+instructions_at_most = 4294967295
+
+[staged_observation]
+observed_utc = "2026-10-16"
+rpc_endpoint = "https://soroban-testnet.stellar.org"
+latest_ledger = 5216960
+endpoint_protocol_version = 29
+min_resource_fee = "6143"
+transaction_data = "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAAAAHGHQAAAAAAAAAAAAAAAAAAF/8="
+result_xdr = "AAAADgAAAAZuYXRpdmUAAA=="
