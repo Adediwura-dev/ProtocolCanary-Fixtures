@@ -245,6 +245,16 @@ changed; the date recorded in its header comment is what lets a reader
 judge how stale that observation may be (see the date convention in
 [`CONTRIBUTING.md`](CONTRIBUTING.md#recording-verification-dates)).
 
+**Not every `.toml` in this repository is a fixture.** Discovery is scoped to
+the `protocol-*/` packs, so material deliberately kept out of the consumable
+corpus lives elsewhere and is checked only by the test suite. Today that means
+[`tests/vectors/resource_estimation/`](tests/vectors/resource_estimation/):
+three complete resource-estimation fixtures staged ahead of the `canary-soroban`
+support they need, which the loader would reject (and, in doing so, abort a run)
+if they sat inside a pack. See
+[`docs/protocol-28.md`](docs/protocol-28.md#the-staged-resource-estimation-corpus)
+for what they assert and what would promote them.
+
 ### Fixtures badge
 
 The badge at the top of this file reports the repository's current total

@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/StellarCanary/ProtocolCanary-Fixtures/schemas/proposed/simulation-resource-estimate.expect.json",
+  "title": "PROPOSED soroban [expect] block: simulation-resource-estimate",
+  "$comment": "NOT AUTHORITATIVE, and deliberately not reachable from schemas/fixture-v1.schema.json. This file is a proposal for a new soroban assertion kind, staged ahead of the engine support it requires. CONTRIBUTING.md#fixture-schema makes StellarCanary/Protocol-Canary's loader authoritative and forbids this repository's schema from leading it: adding this kind to fixture-v1.schema.json today would make the schema accept a fixture that canary-soroban rejects, and canary-runner's scheduler aborts the whole run (exit 4) on such a fixture rather than skipping it. This fragment becomes part of fixture-v1.schema.json only once canary-soroban ships and releases the matching SorobanAssertion variant. Tracked by ProtocolCanary-Fixtures#301; the engine prerequisite is Protocol-Canary#517 / #504. Bounds below are XDR field widths from stellar-xdr v28.0 (Stellar-transaction.x): SorobanTransactionData.resourceFee is int64, and SorobanResources.instructions / diskReadBytes / writeBytes are uint32. Validated by tests/test_sim_resource_fixtures.py using tools/validate/jsonschema_lite.py.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "simulation-resource-estimate",
+      "description": "Simulation must succeed AND its resource estimate must satisfy every bound declared alongside this key. Omitted bounds are not asserted."
+    },
+    "min_resource_fee_at_least": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807,
+      "description": "Lower bound on the response's minResourceFee, parsed as a decimal integer. Bounded by int64, the width of SorobanTransactionData.resourceFee."
+    },
+    "min_resource_fee_at_most": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807,
+      "description": "Upper bound on minResourceFee. Must be >= min_resource_fee_at_least when both are present; JSON Schema cannot express that, so tests/test_sim_resource_fixtures.py checks it."
+    },
+    "instructions_at_least": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295,
+      "description": "Lower bound on SorobanResources.instructions decoded from the response's transactionData. Bounded by uint32."
+    },
+    "instructions_at_most": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295,
+      "description": "Upper bound on SorobanResources.instructions. Must be >= instructions_at_least when both are present."
+    },
+    "disk_read_bytes_at_least": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "Lower bound on SorobanResources.diskReadBytes. Zero is meaningful here: a pure read of an already-loaded contract instance must not need disk-backed reads."
+    },
+    "disk_read_bytes_at_most": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "Upper bound on SorobanResources.diskReadBytes."
+    },
+    "write_bytes_at_least": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "Lower bound on SorobanResources.writeBytes."
+    },
+    "write_bytes_at_most": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "Upper bound on SorobanResources.writeBytes. Zero is meaningful for a read-only invocation."
+    },
+    "footprint_read_only_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact length of LedgerFootprint.readOnly decoded from transactionData. Stable for a fixed function on a fixed contract, unlike the fee and instruction estimates."
+    },
+    "footprint_read_write_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact length of LedgerFootprint.readWrite decoded from transactionData."
+    },
+    "resource_fee_matches_min_resource_fee": {
+      "const": true,
+      "description": "SorobanTransactionData.resourceFee inside transactionData must equal minResourceFee. Only `true` is expressible: `false` would assert that the host returns two contradictory estimates."
+    }
+  }
+}

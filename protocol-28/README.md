@@ -45,5 +45,15 @@ enumeration.
 
 See [`../docs/protocol-28.md`](../docs/protocol-28.md) for what this pack
 checks, what it deliberately does not (including why CAP-0086 has no
-fixture yet, and why there are no simulation-`auth` or resource-estimation
-fixtures), and source provenance for every assertion above.
+fixture yet, and why there are no simulation-`auth` fixtures), and source
+provenance for every assertion above.
+
+The fixture count above is the whole pack. Three further resource-estimation
+fixtures are written but **staged** outside it, under
+[`../tests/vectors/resource_estimation/`](../tests/vectors/resource_estimation/),
+because `canary-soroban` has no assertion kind for a resource estimate yet and a
+fixture the loader cannot parse aborts a run rather than being skipped. They are
+not counted here, not validated by `tools/validate/validate.py`, and not
+consumable — see [the staged resource-estimation
+corpus](../docs/protocol-28.md#the-staged-resource-estimation-corpus) for what
+they assert and what would promote them.

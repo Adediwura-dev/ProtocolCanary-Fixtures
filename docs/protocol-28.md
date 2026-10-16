@@ -270,26 +270,41 @@ fixtures exactly as it does to the existing ones.
   for panic and contract-error-code coverage; it is not delivered here.
 - **Resource limits.** An `SCE_BUDGET` error needs a call that exhausts an
   instruction or memory footprint limit, which cannot be constructed against the
-  reserved SAC and would in any case be an assertion about resource estimation —
-  see [Soroban simulation auth and resource estimation](#soroban-simulation-auth-and-resource-estimation)
-  below for why this pack has no resource-estimation fixtures at all.
+  reserved SAC and needs a deployed contract. See [Soroban simulation auth and
+  resource estimation](#soroban-simulation-auth-and-resource-estimation) below:
+  the resource-estimation *fields* a successful simulation returns do have
+  fixtures, staged because the loader cannot yet assert on them, but a budget
+  exhaustion is neither staged nor shippable.
 
 ## Soroban simulation auth and resource estimation
 
-Added 2026-10-15. Issues [#300](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/300)
+Added 2026-10-15; resource-estimation half updated 2026-10-16. Issues
+[#300](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/300)
 (F-043) and [#301](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/301)
 (F-044) ask this pack for fixtures asserting on the `auth` array a
 `simulateTransaction` response carries (`SorobanAuthorizationEntry`, root
 invocation, address credentials) and on its resource-estimation fields
 (`minResourceFee`, `transactionData`, CPU and memory instructions).
 
-**What this pack tests.** Nothing, yet. As with CAP-0086 above, this is a
-deliberate, documented gap rather than an oversight.
+**What this pack tests.** For `auth`: nothing, and that is a deliberate,
+documented gap rather than an oversight, exactly as with CAP-0086 above. For
+resource estimation: nothing *consumable* — but the fixtures now exist in staged
+form under
+[`tests/vectors/resource_estimation/`](../tests/vectors/resource_estimation/),
+with their proposed assertion vocabulary in
+[`schemas/proposed/simulation-resource-estimate.expect.json`](../schemas/proposed/simulation-resource-estimate.expect.json)
+and an offline suite in
+[`tests/test_sim_resource_fixtures.py`](../tests/test_sim_resource_fixtures.py)
+that validates them and re-decodes the observations they are based on. See [The
+staged resource-estimation
+corpus](#the-staged-resource-estimation-corpus) below.
 
-**Why there is no fixture.** Neither assertion is expressible in the fixture
-contract this repository is required to mirror. Read against
+**Why neither assertion can ship in `protocol-28/`.** Neither is expressible in
+the fixture contract this repository is required to mirror. Read against
 `StellarCanary/Protocol-Canary` at commit
-`2a88756536e2a8fbb3bae475ca1ec0e0c69f2f9c`:
+`4d2cb9978127ecd1045b4cca022a4681875d0052` — re-read 2026-10-16 for issue #301,
+not carried over from the earlier audit that pinned
+`2a88756536e2a8fbb3bae475ca1ec0e0c69f2f9c`; nothing relevant had changed:
 
 - `canary-rpc`'s `SimulationResponse` (`crates/canary-rpc/src/models.rs`) has
   exactly four fields — `latest_ledger`, `error`, `transaction_data`,
@@ -316,13 +331,17 @@ contract this repository is required to mirror. Read against
 
 **Why this repository does not extend its own schema to cover them.** Issue #301
 asks for `schemas/fixture-v1.schema.json` and `tools/validate/validate.py` to
-learn a resource-estimation assertion kind. Doing that here would invert the
-ownership rule in [`../CONTRIBUTING.md`](../CONTRIBUTING.md#fixture-schema):
+learn a resource-estimation assertion kind. Doing that *in the shipped schema*
+would invert the ownership rule in
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md#fixture-schema):
 that schema "is a convenience JSON Schema mirroring that contract … if the two
 ever disagree, `Protocol-Canary`'s implementation wins and this repository's
 schema/validator must be corrected to match — never the other way around", and
 an unsupported assertion is to be added here "only … once that support exists
-and is released".
+and is released". The proposed vocabulary is therefore written down in
+[`schemas/proposed/`](../schemas/proposed/), which `fixture-v1.schema.json` does
+not reference and `tools/validate/schema_sync.py` does not read — a proposal a
+reviewer can check, not a claim about what the loader accepts.
 
 It would also break the pack for every consumer, not just omit a check. In
 `canary-runner`'s scheduler, `SorobanFixture::from_loaded` is called with `?`, so
@@ -334,6 +353,61 @@ does run first, but `Capability` is a closed five-member enum
 `raw-ledger-access`) with no member meaning "auth assertions" or "resource
 estimation", so borrowing one would misdescribe the fixture to get it skipped.
 
+### The staged resource-estimation corpus
+
+Issue #301's fixtures are written; they are simply not where the loader can see
+them. [`tests/vectors/resource_estimation/`](../tests/vectors/resource_estimation/)
+holds three complete files, each with the header comment
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-fixture) requires of a
+shipped fixture:
+
+| Staged fixture | Function | What it asserts |
+|---|---|---|
+| `p28-soroban-sim-resource-min-fee-positive` | `name()` | The estimate is present, positive, and within the XDR widths that carry it (`instructions` uint32, `resourceFee` int64). |
+| `p28-soroban-sim-resource-fee-matches-transaction-data` | `decimals()` | `SorobanTransactionData.resourceFee` inside `transactionData` equals the same response's `minResourceFee`. |
+| `p28-soroban-sim-resource-pure-read-footprint` | `symbol()` | A read-only accessor is estimated as read-only: one-entry `readOnly` footprint naming the invoked contract, empty `readWrite`, zero `diskReadBytes` and `writeBytes`. |
+
+They live under `tests/vectors/` rather than `protocol-28/soroban/` because both
+`tools/validate/validate.py` and `tools/badge/badge.py` discover packs by
+globbing `protocol-*/` only, so nothing there is parsed as a fixture, counted in
+README.md's badge, or handed to the loader. That is the same arrangement
+[`tests/vectors/scval_parity/`](../tests/vectors/scval_parity/) already uses. The
+directory's own [`README.md`](../tests/vectors/resource_estimation/README.md)
+records the promotion criteria.
+
+**Where the expectations come from.** Observed on **2026-10-16 UTC** against
+`https://soroban-testnet.stellar.org` at ledger 5216960, using the same
+unsigned all-zero-source `InvokeHostFunction` envelope that
+[`p28-soroban-native-asset-name`](../protocol-28/soroban/p28-soroban-native-asset-name.toml)
+ships. Each response's `minResourceFee` and `transactionData` are recorded
+verbatim in the fixture's `[staged_observation]` table, and
+[`../tests/test_sim_resource_fixtures.py`](../tests/test_sim_resource_fixtures.py)
+decodes that `transactionData` offline against `stellar-xdr` v28.0 — asserting
+the buffer is consumed to the byte, so a mis-aligned decode cannot pass — then
+checks that the bounds the fixture declares actually hold for the observation it
+cites. Observed: `name()` fee 6143 / 116253 instructions, `decimals()` 6126 /
+109125, `symbol()` 6151 / 116390; all three with `diskReadBytes` 0,
+`writeBytes` 0, an empty `readWrite` footprint, and a single `readOnly`
+`CONTRACT_DATA` key whose contract hash is the strkey payload of
+`CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`.
+
+**Two things that shaped the assertions.** Fees and instruction counts are
+live-varying, so every assertion is a bound, an XDR field width, or a relation
+between two fields of one response — never an equality against a recorded
+number, which [`../CONTRIBUTING.md`](../CONTRIBUTING.md#what-never-belongs-in-a-fixture)
+rules out. And `cost` is now `null` in testnet's `simulateTransaction` response:
+the deprecated `cost.cpuInsns`/`cost.memBytes` pair issue #301 mentions is no
+longer returned, so the instruction estimate has to be read from
+`SorobanResources.instructions` inside `transactionData`, which is what the
+staged fixtures do.
+
+**What is deliberately not staged.** An `SCE_BUDGET` fixture. Exhausting an
+instruction or memory footprint limit needs a call the reserved SAC cannot
+provide, and the resource *limits* themselves are a host-configuration matter
+rather than something a `simulateTransaction` response exposes. Staging a file
+for it would be staging a guess, so there is none; see [What this suite does not
+cover, and why](#what-this-suite-does-not-cover-and-why) above.
+
 **What closes the gap.** For `auth`, upstream
 [#517](https://github.com/StellarCanary/Protocol-Canary/issues/517) landing and
 being released. For resource estimation, an equivalent extension of
@@ -341,12 +415,24 @@ being released. For resource estimation, an equivalent extension of
 [#504](https://github.com/StellarCanary/Protocol-Canary/issues/504) (E-110,
 still open). Once either exists in a released `Protocol-Canary`, the fixture,
 schema and validator changes follow the ordinary
-[Adding a fixture](../CONTRIBUTING.md#adding-a-fixture) steps.
+[Adding a fixture](../CONTRIBUTING.md#adding-a-fixture) steps — and for the
+staged corpus that means the `git mv` into `protocol-28/soroban/`, merging the
+proposed fragment into `schemas/fixture-v1.schema.json`, extending
+`SOROBAN_EXPECT_KINDS`/`SOROBAN_EXPECT_FIELDS` in `tools/validate/validate.py`,
+refreshing `EXPECTED_IDS_BY_SURFACE` in
+[`../tests/test_pack_protocol_28.py`](../tests/test_pack_protocol_28.py),
+dropping each `[staged_observation]` table, and running `make badge`. The
+staging directory's [`README.md`](../tests/vectors/resource_estimation/README.md)
+lists the same criteria next to the files they apply to.
 
 **Source.** `StellarCanary/Protocol-Canary` at
-`2a88756536e2a8fbb3bae475ca1ec0e0c69f2f9c`: `crates/canary-rpc/src/models.rs`,
+`4d2cb9978127ecd1045b4cca022a4681875d0052`: `crates/canary-rpc/src/models.rs`,
 `crates/canary-soroban/src/runner.rs`, `crates/canary-runner/src/scheduler.rs`,
-`crates/canary-core/src/model.rs`, `docs/fixture-contract.md`.
+`crates/canary-core/src/model.rs`, `docs/fixture-contract.md`. Field layouts and
+widths from [`stellar-xdr` v28.0](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-transaction.x)
+(`Stellar-transaction.x` for `SorobanTransactionData`, `SorobanResources` and
+`LedgerFootprint`; `Stellar-ledger-entries.x` for `LedgerKey` and
+`ContractDataDurability`; `Stellar-contract.x` for `SCVal` and `SCAddress`).
 
 ## What this pack does not check, generally
 
