@@ -1,0 +1,73 @@
+# Protocol 28 Soroban simulation error fixture: wrong argument type.
+#
+# What this tests. Supplying the right number of arguments of the wrong ScVal
+# types must fail with a value-subsystem host error. The target is the testnet
+# Stellar Asset Contract for native XLM
+# (CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC), a reserved,
+# network-wide, always-present address that this repository did not deploy.
+# SEP-41 declares `fn transfer(env, from: Address, to: MuxedAddress,
+# amount: i128)`, so the first two parameters are addresses; this fixture
+# passes three arguments -- the correct arity -- with SCV_SYMBOL in both
+# address positions.
+#
+# Why it matters. This is the failure mode that arity checking cannot catch. A
+# consumer that re-serializes an Address as a Symbol (a plausible mistake when
+# a protocol upgrade changes how an SDK renders addresses) produces a call that
+# looks structurally correct and is rejected only by the host's ScVal
+# conversion. Note the symbols used are deliberately restricted to the ScSymbol
+# character set: a hyphen or other illegal byte would be rejected earlier, as
+# `Error(Value, InvalidInput)` with "byte is not allowed in Symbol", which is a
+# different assertion -- see the SCVal charset rule in Stellar-contract.x.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-15 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org returned in
+# `result.error`:
+#   HostError: Error(Value, UnexpectedType)
+# followed by "DebugInfo not available". That pair is SCE_VALUE (=8) and
+# SCEC_UNEXPECTED_TYPE (=8) from the SCErrorType/SCErrorCode taxonomy in
+# Stellar-contract.x. message_contains pins only that stable
+# `Error(<type>, <code>)` form, which also keeps the assertion independent of
+# whether the host chooses to attach diagnostic events.
+#
+# Deterministic. No state is read and nothing is deployed: the contract is
+# reserved and always present, the call is a pure invocation from the all-zero
+# (unfunded) source account, and the outcome depends only on the exported
+# function's fixed parameter types. No transfer can occur, so no balance
+# changes even if the assertion were ever to become wrong.
+#
+# How it was observed. See docs/protocol-28.md, "Soroban simulation error
+# fixtures", for the verification method shared by the four
+# p28-soroban-sim-error-* fixtures, including the `name()` positive control
+# that validates the transaction envelope used here. Testnet reported
+# protocolVersion 29 at observation time while this pack targets protocol 28.
+
+id = "p28-soroban-sim-error-arg-type"
+protocol = 28
+surface = "soroban"
+category = "simulation-error"
+description = "simulateTransaction fails with host error Error(Value, UnexpectedType) when SEP-41 transfer() receives symbols in its two address parameter positions"
+source_reference = "https://github.com/stellar/stellar-protocol/blob/4db3e802b2929c865a27bd43f2544c979150137d/ecosystem/sep-0041.md"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "transfer"
+sequence_number = 1
+
+# i128 is written as a string because a TOML integer is 64-bit and cannot carry
+# the full i128 range; canary-soroban's parse_arg accepts a decimal or
+# 0x-prefixed hex string for this kind.
+[[args]]
+kind = "symbol"
+value = "AAA"
+
+[[args]]
+kind = "symbol"
+value = "BBB"
+
+[[args]]
+kind = "i128"
+value = "1"
+
+[expect]
+kind = "simulation-error"
+message_contains = "Error(Value, UnexpectedType)"

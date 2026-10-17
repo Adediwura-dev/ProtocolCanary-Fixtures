@@ -35,7 +35,13 @@ EXPECTED_IDS_BY_SURFACE = {
         "p28-xdr-cap85-external-ref-malformed",
     },
     "rpc": {"p28-rpc-network", "p28-rpc-latest-ledger"},
-    "soroban": {"p28-soroban-native-asset-name"},
+    "soroban": {
+        "p28-soroban-native-asset-name",
+        "p28-soroban-sim-error-unknown-function",
+        "p28-soroban-sim-error-missing-contract",
+        "p28-soroban-sim-error-arg-count",
+        "p28-soroban-sim-error-arg-type",
+    },
 }
 
 

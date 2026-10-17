@@ -1,0 +1,40 @@
+# CF-02 conformance vector "standard": the fixture whose id sorts first and
+# whose path sorts last.
+#
+# What this file is. Test data for CF-02 (fixture registry and pack digest),
+# not a behavior fixture; see ../../README.md. It carries a real `rpc` body so
+# the pack it belongs to is one the loader -- and tools/validate/validate.py --
+# would accept, which is what makes the golden registry manifest beside it
+# meaningful.
+#
+# What it pins.
+#   * The registry's `fixtures` array is ordered by `id` (this file's id sorts
+#     before the pack's other fixture), while the digest input is ordered by
+#     pack-relative path (this file's path `shallow/...` sorts after
+#     `deep/...`). The two orders in one pack must come out opposite, so an
+#     implementation that sorts both the same way fails the vector.
+#   * `required_capabilities` is present and non-empty, so the registry entry
+#     must carry `requiredCapabilities: ["rpc-client"]`.
+#   * It is a payload-free fixture in a pack that has payloads, so `payloads`
+#     must be `[]` for this entry and not for the other one.
+#
+# Why the body is a `get-network` call. The vector is about registry metadata;
+# the body only has to be valid. `get-network` is the narrowest stable RPC
+# method this repository supports, and the single assertion below names a field
+# the method always returns, so the file never asserts a live-varying value.
+#
+# Reference: https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork
+
+id = "p28-rpc-cf02-standard-alpha"
+protocol = 28
+surface = "rpc"
+category = "registry-conformance"
+description = "CF-02 vector: id sorts first, path sorts last, one capability required"
+source_reference = "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork"
+required_capabilities = ["rpc-client"]
+
+method = "get-network"
+
+[[assert]]
+kind = "field-exists"
+field = "passphrase"

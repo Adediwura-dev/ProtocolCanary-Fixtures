@@ -1,0 +1,45 @@
+# CF-02 conformance vector "complex": one of the two fixtures sharing a payload.
+#
+# What this file is. Test data for CF-02 (fixture registry and pack digest),
+# not a behavior fixture; see ../../README.md.
+#
+# What it pins.
+#   * This file and its sibling in the same directory both reference
+#     `payloads/shared.bin` -- this one as `input_file`, the sibling as
+#     `expected_file`. CF-02 section 4 says a shared payload appears once per
+#     referencing fixture in the registry but exactly once in the digest input,
+#     so that file must be one line of the digest input, not two.
+#   * The path of this directory, `set/a/`, is the other half of the
+#     byte-versus-component ordering case: see the header of the `set-b/`
+#     fixture for the detail.
+#
+# Never executed. Every `tests/vectors/` file is outside the roots
+# tools/validate/validate.py and tools/badge/badge.py scan, so nothing here is
+# run against a network; the `soroban` body exists only so this pack is one the
+# loader would accept, and the vector makes no live observation (which is why,
+# unlike a behavior fixture, it records no verification date).
+#
+# Why the body is the native-asset `name()` call. It is the one Soroban
+# invocation this repository has already verified deterministically -- the
+# reserved, network-wide testnet SAC (nothing this repository deployed) called
+# from the unfunded all-zero account -- and it is copied from
+# protocol-28/soroban/p28-soroban-native-asset-name.toml rather than invented.
+#
+# Reference: https://developers.stellar.org/docs/tokens/stellar-asset-contract
+
+id = "p28-soroban-cf02-complex-shared-alpha"
+protocol = 28
+surface = "soroban"
+category = "registry-conformance"
+description = "CF-02 vector: references the payload its sibling also references, as input_file"
+source_reference = "https://developers.stellar.org/docs/tokens/stellar-asset-contract"
+required_capabilities = ["soroban-contract"]
+input_file = "payloads/shared.bin"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "name"
+sequence_number = 1
+
+[expect]
+kind = "simulation-success"

@@ -86,7 +86,9 @@ near a day boundary ambiguous by up to a day, defeating that purpose.
    (`.github/workflows/validate.yml`), so that exit code is what CI
    treats as pass/fail — any error fails the workflow on your PR. In
    particular, a missing `source_reference` (step 2) is an error, so it
-   fails CI rather than passing with a printed advisory.
+   fails CI rather than passing with a printed advisory. Add
+   `--format json` for the same run as a single JSON document on stdout
+   (see [README.md](README.md#validation)); the exit codes are unchanged.
 7. **Add/update documentation**: the relevant `docs/protocol-NN.md` table
    and, if you added a new CAP or surface, the pack's `README.md`.
 8. **Run the repository tests**: `make test` — or
@@ -324,6 +326,8 @@ Quick reference for what contributors hit most often. Each line is the error as
 | `field 'source_reference' links to GitHub ref 'master', which is a branch name and moves; pin ...` | The link follows a branch. Replace the branch with the full commit SHA of the revision you checked (`.../blob/<40-hex commit>/...`) or a release tag. |
 | `field 'source_reference' must be a CAP identifier such as 'CAP-0083' or an absolute https:// URL ...` | The value is free text or a relative link. Use `CAP-0083`-style identifiers, or the full `https://` URL of the page you checked. |
 | `duplicate fixture id '...': already defined in ...` | Two fixtures share an `id`. Ids must be unique across the whole tree — rename the new one. |
+| `unexpected key(s) '...' in 'expect'; canary-soroban accepts only ['kind', 'message_contains']` | Unlike the top level of a fixture, `[expect]` is closed: `canary-soroban` rejects an unknown key there. Usually a typo (`message_contain`) or a field that belongs at the top level. |
+| `expect.message_contains must be a string, got ...` / `expect.message_contains must not be empty; ...` | The loader reads the field with `toml::Value::as_str`, so a non-string is silently dropped and an empty string matches every message — either way the fixture asserts less than it appears to. Quote the needle, or omit the key entirely to assert only that the simulation fails. |
 | `README.md's fixtures badge is stale; run ...` | You added or removed a `*.toml`, so the fixture count in README.md is now wrong. Run `make badge` and commit the result. |
 | `missing required field '...'` with no obvious cause | Usually a typo'd duplicate of the intended field (e.g. `soure_reference`). Unknown top-level fields are silently ignored — see [Unknown top-level fields](#unknown-top-level-fields). |
 

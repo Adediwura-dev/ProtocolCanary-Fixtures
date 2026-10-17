@@ -1,0 +1,91 @@
+# STAGED FIXTURE -- NOT PART OF THE SHIPPED PROTOCOL-28 PACK. DO NOT MOVE INTO
+# protocol-28/ UNTIL canary-soroban SUPPORTS `simulation-resource-estimate`.
+#
+# See p28-soroban-sim-resource-min-fee-positive.toml's header for why this
+# directory exists instead of protocol-28/soroban/, and for the
+# StellarCanary/Protocol-Canary commit (4d2cb9978127ecd1045b4cca022a4681875d0052)
+# at which `expect.kind = "simulation-resource-estimate"` was verified to be
+# unsupported. The short version: the loader rejects the kind, and canary-runner
+# aborts the whole run (exit 4) on a fixture it cannot parse, so a fixture using
+# it must not sit where the loader scans.
+#
+# What this asserts, once supported. That a read-only Stellar Asset Contract
+# accessor is *estimated* as read-only. `symbol()` reads the SAC's own contract
+# instance entry and nothing else, so the SorobanResources the host returns must
+# declare an empty readWrite footprint and zero disk-read and write budgets. The
+# footprint counts are the stable part of a resource estimate -- unlike the fee
+# and the instruction count they do not drift with network cost configuration --
+# which makes them the right thing to pin exactly.
+#
+# Why it matters. The footprint is not advisory: it is the ledger-access
+# declaration the real transaction is charged against, and an entry missing from
+# it makes the transaction fail at apply time rather than at simulation time. A
+# protocol upgrade that quietly widened the footprint of a pure read (adding a
+# readWrite entry, or a non-zero writeBytes budget) would inflate every
+# consumer's fees and change which entries a transaction is allowed to touch.
+# Neither is visible from a simulation-success assertion, which is what
+# protocol-28/soroban/p28-soroban-native-asset-name.toml already covers for the
+# sibling function `name()`. This fixture is the resource-estimation half of the
+# same call.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-16 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org at ledger
+# 5216960 returned, for `symbol()`, a transactionData that decodes byte-exactly
+# -- 80 bytes in, 80 bytes consumed -- to ext.v 0, footprint.readOnly of length
+# 1, footprint.readWrite of length 0, diskReadBytes 0 and writeBytes 0. The
+# single read-only LedgerKey is CONTRACT_DATA for SCAddress type CONTRACT with
+# hash d7928b72c2703ccfeaf7eb9ff4ef4d504a55a8b979fc9b450ea2c842b4d1ce61, key
+# SCV_LEDGER_KEY_CONTRACT_INSTANCE (SCValType 20, a void arm), durability
+# PERSISTENT. That hash is the strkey payload of the contract_id below: decoding
+# CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC yields version byte
+# 16 (CONTRACT), that exact 32-byte payload, and a valid CRC-16/XMODEM checksum.
+# tests/test_sim_resource_fixtures.py re-derives both the decode and that strkey
+# equality offline from the bytes recorded below, so the footprint this fixture
+# claims is checked rather than asserted. Field order and the three-field
+# CONTRACT_DATA arm (`contract`, `key`, `durability`) are from stellar-xdr v28.0
+# -- Stellar-ledger-entries.x for LedgerKey and ContractDataDurability,
+# Stellar-transaction.x for LedgerFootprint and SorobanResources.
+#
+# Determinism. Nothing is deployed, the source is the all-zero unfunded account,
+# the contract is the reserved network-wide native SAC, and `symbol()` is a pure
+# invocation whose footprint depends only on the contract's own instance entry.
+# The counts asserted here are exact and were identical for the `name()` and
+# `decimals()` observations recorded in this directory's sibling fixtures. The
+# positive control for the envelope is results[0].xdr AAAADgAAAAZuYXRpdmUAAA==
+# -- SCValType 14 (SCV_STRING), length 6, "native". The endpoint reported
+# protocolVersion 29 while this
+# pack targets protocol 28 -- see
+# docs/protocol-28.md#live-networks-that-report-a-newer-protocol.
+#
+# [staged_observation] is a staging artifact, not part of the proposed fixture
+# contract. Delete it when this fixture is promoted into protocol-28/soroban/.
+
+id = "p28-soroban-sim-resource-pure-read-footprint"
+protocol = 28
+surface = "soroban"
+category = "resource-estimation"
+description = "A read-only Stellar Asset Contract accessor is estimated with a one-entry read-only footprint naming the invoked contract, an empty readWrite footprint, and zero disk-read and write budgets"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger-entries.x"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+function = "symbol"
+sequence_number = 1
+
+# PROPOSED assertion kind. Unsupported by canary-soroban as of the commit named
+# above; see schemas/proposed/simulation-resource-estimate.expect.json.
+[expect]
+kind = "simulation-resource-estimate"
+footprint_read_only_count = 1
+footprint_read_write_count = 0
+disk_read_bytes_at_most = 0
+write_bytes_at_most = 0
+
+[staged_observation]
+observed_utc = "2026-10-16"
+rpc_endpoint = "https://soroban-testnet.stellar.org"
+latest_ledger = 5216960
+endpoint_protocol_version = 29
+min_resource_fee = "6151"
+transaction_data = "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAAAAHGpgAAAAAAAAAAAAAAAAAAGAc="
+result_xdr = "AAAADgAAAAZuYXRpdmUAAA=="

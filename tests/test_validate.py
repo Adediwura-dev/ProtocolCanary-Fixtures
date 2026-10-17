@@ -8,6 +8,7 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -1097,6 +1098,205 @@ class QuietFlagTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
+class JsonFormatTests(unittest.TestCase):
+    """`--format json` prints one machine-readable report on stdout (F-023).
+
+    The JSON document is the CLI's contract with automated consumers — CI
+    jobs and tooling — so these tests exercise ``validate.main`` (the entry
+    point such a consumer runs) and parse its stdout the way a pipeline
+    would, rather than calling ``build_json_report`` directly and trusting
+    the printing path to agree with it.
+    """
+
+    def run_json(self, argv: list[str]) -> tuple[int, dict, str, str]:
+        """Run ``validate.main(argv)``; return exit code, parsed document, stdout, stderr."""
+        code, out, err = run_main(argv)
+        return code, json.loads(out), out, err
+
+    def test_valid_run_emits_the_documented_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", VALID_XDR)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 0)
+        # A machine consumer reads the outcome from stdout alone: the JSON
+        # document is the whole of it, and nothing goes to stderr.
+        self.assertEqual(err, "")
+        self.assertEqual(list(document), ["valid", "errors", "warnings", "summary"])
+        self.assertIs(document["valid"], True)
+        self.assertEqual(document["errors"], [])
+        self.assertEqual(document["warnings"], [])
+        self.assertEqual(
+            document["summary"],
+            {"roots": [tmp], "fixtures": 1, "errors": 0, "warnings": 0},
+        )
+
+    def test_invalid_run_exits_1_and_reports_valid_false(self) -> None:
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        # `valid` must mirror the exit code, not merely correlate with it.
+        self.assertEqual(code, 1)
+        self.assertIs(document["valid"], False)
+        self.assertEqual(err, "")
+        self.assertTrue(document["errors"])
+        self.assertEqual(document["summary"]["errors"], len(document["errors"]))
+        self.assertEqual(document["summary"]["warnings"], len(document["warnings"]))
+
+    def test_error_diagnostic_carries_path_id_line_and_message(self) -> None:
+        # Negative case called for by the issue: a validation error must come
+        # back as JSON naming the file, the line and the reason, not as prose.
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        diagnostic = document["errors"][0]
+        self.assertEqual(list(diagnostic), ["path", "id", "line", "message"])
+        self.assertEqual(diagnostic["path"], str(path))
+        self.assertEqual(diagnostic["id"], "p28-xdr-cap83-example")
+        # `surface` is the fourth line of VALID_XDR, which opens with a blank line.
+        self.assertEqual(diagnostic["line"], 4)
+        self.assertIn("field 'surface' must be one of", diagnostic["message"])
+        self.assertIn("'wallet'", diagnostic["message"])
+
+    def test_line_is_null_when_the_validator_cannot_locate_it(self) -> None:
+        # A missing field has no line to point at, and the documented contract
+        # is that an unknown line is reported as null rather than guessed.
+        bad = VALID_XDR.replace('type = "StellarValue"\n', "")
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        matching = [
+            e for e in document["errors"] if "missing required field 'type'" in e["message"]
+        ]
+        self.assertEqual(len(matching), 1, document["errors"])
+        self.assertIsNone(matching[0]["line"])
+
+    def test_malformed_toml_reports_the_parser_line(self) -> None:
+        # A TOML syntax error is one of the two places a line is genuinely
+        # known, so it must be reported rather than left null.
+        bad = VALID_XDR.replace('surface = "xdr"', "surface = ")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        diagnostic = document["errors"][0]
+        self.assertEqual(diagnostic["path"], str(path))
+        self.assertTrue(diagnostic["message"].startswith("invalid TOML:"), diagnostic)
+        self.assertEqual(diagnostic["line"], 4)
+
+    def test_special_characters_in_a_message_are_escaped_and_round_trip(self) -> None:
+        # The characters that would break a hand-formatted report: a double
+        # quote, a backslash (0x5C) and a newline. TOML and JSON basic strings
+        # share the same escape rules, so json.dumps renders a valid TOML
+        # literal for a value that carries all three.
+        needle = 'bad"quote' + chr(92) + 'slash' + chr(10) + 'nl'
+        bad = VALID_XDR.replace('surface = "xdr"', "surface = " + json.dumps(needle))
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, document, out, err = self.run_json(["--format", "json", tmp])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+        self.assertEqual(len(document["errors"]), 1, document["errors"])
+        message = document["errors"][0]["message"]
+        # The validator renders an offending value with repr(), so the quote
+        # and the backslash both reach the message and the newline becomes the
+        # two characters the repr spells out -- all of which JSON escape again.
+        self.assertTrue(message.endswith("got " + repr(needle)), repr(message))
+        # Escaped on the wire rather than embedded literally -- a bare newline
+        # would end the JSON string early -- so the document text carries
+        # JSON's escaping of the same characters, and json.loads (above) is
+        # what proves the result is still one parseable document.
+        self.assertIn(json.dumps(repr(needle))[1:-1], out)
+
+    def test_quiet_does_not_suppress_warnings_in_the_json_report(self) -> None:
+        # `--quiet` is a text-format convenience; a machine consumer decides
+        # what to do with warnings, so the JSON document always carries them.
+        real = validate.validate_directory
+
+        def wrapper(root: Path) -> "validate.Report":
+            report = real(root)
+            report.warning(Path(root) / "injected.toml", "injected warning")
+            return report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", VALID_XDR)
+            with mock.patch.object(validate, "validate_directory", side_effect=wrapper):
+                code, document, out, err = self.run_json(["--quiet", "--format", "json", tmp])
+        # A warning is not an error: the run still exits 0 with valid true.
+        self.assertEqual(code, 0)
+        self.assertIs(document["valid"], True)
+        self.assertEqual(len(document["warnings"]), 1, document)
+        self.assertEqual(document["warnings"][0]["message"], "injected warning")
+        self.assertEqual(document["warnings"][0]["path"], str(Path(tmp) / "injected.toml"))
+        self.assertEqual(document["summary"]["warnings"], 1)
+        self.assertEqual(err, "")
+
+    def test_summary_counts_every_root_and_fixture(self) -> None:
+        bad = VALID_XDR.replace(
+            'id = "p28-xdr-cap83-example"', 'id = "p28-xdr-cap83-bad"'
+        ).replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            write(Path(tmp1), "a.toml", VALID_XDR)
+            write(Path(tmp1), "xdr/b.toml", bad)
+            write(Path(tmp2), "c.toml", VALID_SOROBAN)
+            code, document, out, err = self.run_json(["--format", "json", tmp1, tmp2])
+        self.assertEqual(code, 1)
+        self.assertEqual(document["summary"]["roots"], [tmp1, tmp2])
+        # Both roots are discovered recursively, including the nested file.
+        self.assertEqual(document["summary"]["fixtures"], 3)
+        self.assertEqual(document["summary"]["errors"], 1)
+        self.assertEqual(document["summary"]["errors"], len(document["errors"]))
+
+    def test_non_directory_root_is_reported_in_the_json_document(self) -> None:
+        code, document, out, err = self.run_json(
+            ["--format", "json", "non-existent-root-for-json-test"]
+        )
+        self.assertEqual(code, 1)
+        self.assertIs(document["valid"], False)
+        self.assertEqual(document["summary"]["fixtures"], 0)
+        self.assertEqual([e["message"] for e in document["errors"]], ["not a directory"])
+        self.assertEqual(err, "")
+
+    def test_encoding_is_deterministic_and_matches_the_documented_form(self) -> None:
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code1, document, out1, err1 = self.run_json(["--format", "json", tmp])
+            code2, _, out2, err2 = self.run_json(["--format", "json", tmp])
+        self.assertEqual((code1, out1), (code2, out2))
+        # Two-space indent and exactly one trailing newline, so two reports can
+        # be diffed and `| jq` sees a complete document.
+        self.assertEqual(out1, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        self.assertTrue(out1.endswith("}\n"), out1)
+
+    def test_text_is_still_the_default_format(self) -> None:
+        # `--format json` is opt-in: the existing human-readable output and its
+        # exit code are unchanged when the flag is absent.
+        bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", bad)
+            code, out, err = run_main([tmp])
+        self.assertEqual(code, 1)
+        self.assertIn("error:", err)
+        self.assertIn("FAILED: 1 error(s)", err)
+        self.assertNotIn("{", out)
+
+    def test_rejects_an_unknown_format(self) -> None:
+        # An unrecognized format must fail loudly rather than silently falling
+        # back to text, which a CI job expecting JSON would misread.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                validate.main(["--format", "xml", "."])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("invalid choice", stderr.getvalue())
+
+
 class SchemaSyncTests(unittest.TestCase):
     """schemas/fixture-v1.schema.json must not drift from validate.py.
 
@@ -1421,6 +1621,263 @@ class SourceReferenceFormatTests(unittest.TestCase):
         del schema["properties"]["source_reference"]["pattern"]
         errors = schema_sync.check_sync(schema, validate)
         self.assertEqual(len(errors), 1, errors)
+
+
+class VerificationEvidenceTests(unittest.TestCase):
+    """validate_evidence (F-006, CF-04 sections 3 and 8)."""
+
+    LIVE = {
+        "verificationVersion": 1,
+        "fixtureId": "p28-rpc-network",
+        "fixtureSha256": "a" * 64,
+        "method": "live-read-only",
+        "checkedAt": "2026-09-28T12:30:00Z",
+        "network": {
+            "name": "testnet",
+            "passphrase": "Test SDF Network ; September 2015",
+            "observedProtocol": 28,
+        },
+        "endpointHost": "soroban-testnet.stellar.org",
+        "verifier": {"name": "stellar-canary", "version": "0.1.1"},
+        "evidenceRef": "evidence/p28-rpc-network.json",
+        "outcome": "matched",
+    }
+    OFFLINE = {
+        "verificationVersion": 1,
+        "fixtureId": "p28-xdr-example",
+        "fixtureSha256": "b" * 64,
+        "method": "structural",
+        "checkedAt": "2026-10-01T00:00:00Z",
+        "verifier": {"name": "validate.py", "version": "1"},
+        "outcome": "matched",
+    }
+
+    def problems(self, **changes) -> list[str]:
+        record = copy.deepcopy(self.LIVE)
+        for key, value in changes.items():
+            if value is _MISSING:
+                record.pop(key, None)
+            else:
+                record[key] = value
+        return validate.validate_evidence(record)
+
+    def test_valid_live_and_offline_records_pass(self) -> None:
+        self.assertEqual(validate.validate_evidence(self.LIVE), [])
+        self.assertEqual(validate.validate_evidence(self.OFFLINE), [])
+
+    def test_offline_methods_may_carry_null_network_fields(self) -> None:
+        record = copy.deepcopy(self.OFFLINE)
+        record.update(
+            method="source-checked", network=None, endpointHost=None, evidenceRef=None
+        )
+        self.assertEqual(validate.validate_evidence(record), [])
+
+    def test_a_record_must_be_an_object(self) -> None:
+        for bad in ([], "text", 7, None):
+            self.assertTrue(validate.validate_evidence(bad))
+
+    def test_each_mandatory_field_is_required(self) -> None:
+        for name in validate.EVIDENCE_REQUIRED_FIELDS:
+            with self.subTest(name):
+                found = self.problems(**{name: _MISSING})
+                self.assertTrue(any(name in p for p in found), found)
+
+    def test_unknown_fields_are_rejected(self) -> None:
+        found = self.problems(notes="free text")
+        self.assertTrue(any("unknown field 'notes'" in p for p in found), found)
+
+    def test_unknown_fields_in_nested_objects_are_rejected(self) -> None:
+        verifier = dict(self.LIVE["verifier"], vendor="x")
+        self.assertTrue(any("verifier" in p for p in self.problems(verifier=verifier)))
+        network = dict(self.LIVE["network"], chainId=1)
+        self.assertTrue(any("network" in p for p in self.problems(network=network)))
+
+    def test_version_must_be_the_integer_one(self) -> None:
+        for bad in (2, "1", True, 1.0, None):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(verificationVersion=bad))
+
+    def test_fixture_hash_must_be_64_lowercase_hex(self) -> None:
+        for bad in ("A" * 64, "a" * 63, "g" * 64, "", 5):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(fixtureSha256=bad))
+
+    def test_method_and_outcome_are_closed_sets(self) -> None:
+        self.assertTrue(self.problems(method="unknown"))
+        self.assertTrue(self.problems(method="live"))
+        self.assertTrue(self.problems(outcome="passed"))
+
+    def test_checked_at_must_be_a_utc_instant(self) -> None:
+        for good in ("2026-09-28T12:00:00Z", "2026-09-28T12:00:00.123Z"):
+            self.assertEqual(self.problems(checkedAt=good), [], good)
+        for bad in (
+            "2026-09-28",
+            "2026-09-28T12:00:00",
+            "2026-09-28T12:00:00+00:00",
+            "2026-09-28T12:00:00+01:00",
+            "2026-13-40T12:00:00Z",
+            "2026-09-28T25:00:00Z",
+            "yesterday",
+            20260928,
+        ):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(checkedAt=bad))
+
+    def test_live_record_without_network_fails(self) -> None:
+        for method in validate.EVIDENCE_LIVE_METHODS:
+            with self.subTest(method):
+                found = self.problems(method=method, network=_MISSING)
+                self.assertTrue(any("requires a network object" in p for p in found), found)
+                found = self.problems(method=method, network=None)
+                self.assertTrue(any("requires a network object" in p for p in found), found)
+
+    def test_live_record_without_passphrase_or_observed_protocol_fails(self) -> None:
+        no_passphrase = {"name": "testnet", "observedProtocol": 28}
+        found = self.problems(network=no_passphrase)
+        self.assertTrue(any("network.passphrase" in p for p in found), found)
+        no_protocol = {"name": "testnet", "passphrase": "Test SDF Network ; September 2015"}
+        found = self.problems(network=no_protocol)
+        self.assertTrue(any("network.observedProtocol" in p for p in found), found)
+
+    def test_observed_protocol_must_be_a_non_negative_integer(self) -> None:
+        for bad in (-1, "28", 28.5, True, None):
+            network = dict(self.LIVE["network"], observedProtocol=bad)
+            with self.subTest(bad):
+                self.assertTrue(self.problems(network=network))
+
+    def test_live_record_needs_endpoint_host_and_evidence_ref(self) -> None:
+        self.assertTrue(any("endpointHost" in p for p in self.problems(endpointHost=_MISSING)))
+        self.assertTrue(any("evidenceRef" in p for p in self.problems(evidenceRef=_MISSING)))
+        self.assertTrue(any("evidenceRef" in p for p in self.problems(evidenceRef=None)))
+
+    def test_endpoint_host_must_be_a_bare_host_name(self) -> None:
+        for bad in (
+            "https://rpc.example.org",
+            "rpc.example.org:443",
+            "rpc.example.org/path",
+            "rpc.example.org?key=1",
+            "user@rpc.example.org",
+            "rpc example.org",
+            "",
+        ):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(endpointHost=bad))
+
+    def test_evidence_ref_must_stay_inside_the_repository(self) -> None:
+        for bad in ("/etc/passwd", "../outside.json", "a/../b.json", "a\\b.json", "a//b.json"):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(evidenceRef=bad))
+
+    def test_validator_agrees_with_the_json_schema(self) -> None:
+        schema_path = REPO_ROOT / "schemas" / "verification-v1.schema.json"
+        schema = __import__("json").loads(schema_path.read_text(encoding="utf-8"))
+        # jsonschema_lite has no `allOf`; the conditional live-method rules it
+        # holds are asserted directly in the tests above.
+        schema.pop("allOf", None)
+        schema["properties"]["checkedAt"].pop("format", None)
+        lite_spec = importlib.util.spec_from_file_location(
+            "jsonschema_lite_for_evidence",
+            REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py",
+        )
+        lite = importlib.util.module_from_spec(lite_spec)
+        assert lite_spec.loader is not None
+        lite_spec.loader.exec_module(lite)
+        cases = [
+            self.LIVE,
+            self.OFFLINE,
+            dict(self.LIVE, notes="x"),
+            dict(self.LIVE, fixtureSha256="short"),
+            dict(self.LIVE, method="unknown"),
+            dict(self.LIVE, verificationVersion=2),
+            {k: v for k, v in self.LIVE.items() if k != "outcome"},
+            dict(self.LIVE, endpointHost="https://x.example"),
+        ]
+        for record in cases:
+            with self.subTest(record=record.get("fixtureId"), keys=len(record)):
+                # The validator is at least as strict as the schema: whatever
+                # the schema rejects, it rejects too.
+                if lite.validate(record, schema):
+                    self.assertTrue(validate.validate_evidence(record))
+                if not validate.validate_evidence(record):
+                    self.assertEqual(lite.validate(record, schema), [])
+
+
+class EvidenceCommandLineTests(unittest.TestCase):
+    """--evidence on the command line: files, directories and fixture checks."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        pack = self.root / "protocol-28"
+        pack.mkdir()
+        self.fixture = pack / "p28-xdr-example.toml"
+        self.fixture.write_text(VALID_XDR, encoding="utf-8", newline="\n")
+        self.fixture_id = tomllib.loads(VALID_XDR)["id"]
+        self.sha = __import__("hashlib").sha256(self.fixture.read_bytes()).hexdigest()
+        self.evidence = self.root / "evidence"
+        self.evidence.mkdir()
+
+    def record(self, **changes) -> dict:
+        data = dict(VerificationEvidenceTests.OFFLINE)
+        data.update(fixtureId=self.fixture_id, fixtureSha256=self.sha)
+        data.update(changes)
+        return data
+
+    def write(self, name: str, data) -> Path:
+        path = self.evidence / name
+        path.write_text(__import__("json").dumps(data), encoding="utf-8")
+        return path
+
+    def run_main(self, *args: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = validate.main([str(self.root / "protocol-28"), *args])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_valid_evidence_directory_passes(self) -> None:
+        self.write("a.json", self.record())
+        code, out, err = self.run_main("--evidence", str(self.evidence))
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 evidence record(s) valid", out)
+
+    def test_an_invalid_record_fails_with_its_path(self) -> None:
+        path = self.write("bad.json", self.record(method="live-read-only"))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("bad.json", err)
+        self.assertIn("requires a network object", err)
+
+    def test_unknown_fixture_id_fails(self) -> None:
+        path = self.write("ghost.json", self.record(fixtureId="p28-xdr-ghost"))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("does not match any fixture", err)
+
+    def test_stale_fixture_hash_fails(self) -> None:
+        path = self.write("old.json", self.record(fixtureSha256="c" * 64))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("earlier version", err)
+
+    def test_malformed_json_and_missing_path_fail(self) -> None:
+        broken = self.evidence / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        code, _, err = self.run_main("--evidence", str(broken))
+        self.assertEqual(code, 1)
+        self.assertIn("not valid JSON", err)
+        code, _, err = self.run_main("--evidence", str(self.root / "absent"))
+        self.assertEqual(code, 1)
+        self.assertIn("does not exist", err)
+
+    def test_without_the_flag_nothing_changes(self) -> None:
+        self.write("bad.json", {"verificationVersion": 9})
+        code, out, _ = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("evidence", out)
+
+
+_MISSING = object()
 
 
 if __name__ == "__main__":

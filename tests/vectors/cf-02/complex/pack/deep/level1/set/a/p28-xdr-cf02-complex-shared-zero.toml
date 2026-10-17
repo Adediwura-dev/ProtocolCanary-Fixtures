@@ -1,0 +1,30 @@
+# CF-02 conformance vector "complex": the second half of the shared-payload case.
+#
+# What this file is. Test data for CF-02 (fixture registry and pack digest),
+# not a behavior fixture; see ../../README.md.
+#
+# What it pins. `expected_file` here and `input_file` on the sibling in this
+# same directory both name `payloads/shared.bin`, so:
+#   * the registry lists that payload twice -- once under each fixture's
+#     `payloads` array -- while the digest input names it exactly once;
+#   * the digest therefore covers five files for a pack with four fixtures.
+# A walker that de-duplicated payloads across fixtures, or that hashed a shared
+# payload twice, cannot reproduce the golden digest.
+#
+# Why the XDR body is what it is. Incidental to the vector: a STELLAR_ASSET
+# ContractExecutable is discriminant 1 with a void payload, i.e. 00 00 00 01,
+# base64 "AAAAAQ==", per Stellar-contract.x (pinned below). Nothing decodes it.
+#
+# Reference: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x
+
+id = "p28-xdr-cf02-complex-shared-zero"
+protocol = 28
+surface = "xdr"
+category = "registry-conformance"
+description = "CF-02 vector: references the same payload as its sibling, as expected_file"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x"
+expected_file = "payloads/shared.bin"
+
+type = "ContractExecutable"
+kind = "roundtrip"
+value_base64 = "AAAAAQ=="

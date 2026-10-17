@@ -1,0 +1,53 @@
+# Protocol 28 Soroban simulation error fixture: contract with no instance.
+#
+# What this tests. Invoking a well-formed contract address that has no stored
+# contract instance must fail with a storage-subsystem host error rather than
+# being treated as a call to an empty or default contract. The address
+# CBKPSY6IA5QBMJP5FKMKSSCGQQ6NAIQ4RX3HETMJFJ4VQUKEJTKG2ZSM is a valid strkey
+# CONTRACT encoding (version byte 2<<3, correct CRC-16/XMODEM checksum) of the
+# 32-byte hash SHA-256("protocol-canary-nonexistent-contract"); the function
+# name `name` is a real SEP-41 entry point, so the only thing wrong with this
+# invocation is that no contract exists at that id.
+#
+# Why it matters. Contract ids are computed, not looked up, so a consumer that
+# derives an id from the wrong preimage -- a stale WASM hash, a different
+# network's salt, an address encoded for the wrong protocol -- produces a
+# syntactically perfect id that names nothing. An upgrade that changed
+# contract-id derivation would show up here first, and it must show up as a
+# typed failure.
+#
+# Where the expectation comes from. Observed, not guessed. On 2026-10-15 UTC,
+# simulateTransaction against https://soroban-testnet.stellar.org returned in
+# `result.error`:
+#   HostError: Error(Storage, MissingValue)
+# with diagnostic event "trying to get non-existing value for contract
+# instance". That pair is SCE_STORAGE (=3) and SCEC_MISSING_VALUE (=3) from the
+# SCErrorType/SCErrorCode taxonomy in Stellar-contract.x. message_contains pins
+# only that stable `Error(<type>, <code>)` form.
+#
+# Deterministic. Contract ids cannot be targeted by an attacker or by chance:
+# deploying at this id would require inverting SHA-256, so "no instance here"
+# is stable state rather than a live-network observation that could drift. No
+# ledger sequence, balance or other changing state is asserted.
+#
+# How it was observed. See docs/protocol-28.md, "Soroban simulation error
+# fixtures", for the verification method shared by the four
+# p28-soroban-sim-error-* fixtures, including the `name()` positive control
+# that validates the transaction envelope used here. Testnet reported
+# protocolVersion 29 at observation time while this pack targets protocol 28.
+
+id = "p28-soroban-sim-error-missing-contract"
+protocol = 28
+surface = "soroban"
+category = "simulation-error"
+description = "simulateTransaction fails with host error Error(Storage, MissingValue) for a well-formed contract id that has no stored contract instance"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x"
+
+source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+contract_id = "CBKPSY6IA5QBMJP5FKMKSSCGQQ6NAIQ4RX3HETMJFJ4VQUKEJTKG2ZSM"
+function = "name"
+sequence_number = 1
+
+[expect]
+kind = "simulation-error"
+message_contains = "Error(Storage, MissingValue)"
