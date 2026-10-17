@@ -117,6 +117,34 @@ discussion and diff. New entries must include that link; see
   [issue #283](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/283).
   ([PR #315])
 
+- `tools/validate/validate.py` validates verification evidence records
+  (CF-04 section 3, `verificationVersion` 1): `validate_evidence(record)`
+  and `--evidence PATH`, which takes a record file or a directory of
+  `*.json` records. Missing or unknown fields, a hash that is not 64
+  lowercase hex characters, a `checkedAt` that is not a UTC instant, a
+  `live-*` record without `network` (name, passphrase and
+  `observedProtocol`), `endpointHost` or `evidenceRef`, and a record that
+  names a fixture that does not exist or whose hash is not the current
+  file's, are errors. Nothing is scanned unless `--evidence` is given.
+  ([PR #309])
+- `tools/pack/pack.py` and `make pack VERSION=...`: the deterministic
+  `protocolcanary-fixtures-VERSION.tar.gz` for a pack (CF-06 section 2):
+  entries sorted in UTF-8 byte order, uid and gid 0 with empty names,
+  mtime 0, mode 0644 for files and 0755 for directories, a gzip header
+  with no name or time, the pack membership plus `registry.json`, and the
+  D-06 limits (2,000 entries, 16 MiB, 1 MiB per file, depth 8). Building
+  twice gives the same bytes. ([PR #309])
+- `tools/release/manifest.py` and `schemas/release-manifest-v1.schema.json`:
+  the release manifest for an archive (CF-06 section 3), with the archive
+  hash, byte size, entry count, uncompressed size and `packDigest`
+  recomputed from the archived files. Compatible engines are exact
+  versions recorded as unverified. ([PR #309])
+- `tools/pack/verify_archive.py`: extracts an archive under the CF-06
+  section 6 safe-extraction rules into a temporary directory, checks the
+  registry and pack digest, runs the validator over the contents and
+  removes the directory on every path. Exit code 0 valid, 1 invalid, 2
+  unreadable. ([PR #309])
+
 ### Changed
 
 - `tools/validate/validate.py` and `schemas/fixture-v1.schema.json` now
@@ -272,8 +300,8 @@ discussion and diff. New entries must include that link; see
 <!-- Link definitions: the pull request or commit that introduced each
      entry above. Commits listed here were pushed directly to `main`
      without a pull request; PR #97, PR #143, PR #176, PR #219, PR #231,
-     PR #232, PR #236, PR #252, PR #308 and PR #315 are the [Unreleased]
-     entries that originated from pull requests. -->
+     PR #232, PR #236, PR #252, PR #308, PR #309 and PR #315 are the
+     [Unreleased] entries that originated from pull requests. -->
 
 [757e1e7]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/757e1e777489bb5c20e7500b245370de227c66b3
 [5142110]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/commit/51421106999811666502b2e7da7ae3b9e351fd9c
@@ -295,4 +323,5 @@ discussion and diff. New entries must include that link; see
 [PR #236]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/236
 [PR #252]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/252
 [PR #308]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/308
+[PR #309]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/309
 [PR #315]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/315

@@ -44,11 +44,13 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import hashlib
 import json
 import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -769,6 +771,222 @@ def validate_directory(root: Path) -> Report:
     return report
 
 
+# --------------------------------------------------- verification evidence
+#
+# CF-04 section 3 (``verificationVersion`` 1). The rules below mirror
+# ``schemas/verification-v1.schema.json`` and add the two that a schema cannot
+# express: a live record must carry the evidence it was made from, and a
+# record must point at a fixture that exists with the hash that was checked.
+
+EVIDENCE_VERSION = 1
+EVIDENCE_METHODS = ("structural", "source-checked", "live-read-only", "live-simulation")
+EVIDENCE_LIVE_METHODS = ("live-read-only", "live-simulation")
+EVIDENCE_OUTCOMES = ("matched", "mismatched")
+EVIDENCE_REQUIRED_FIELDS = (
+    "verificationVersion",
+    "fixtureId",
+    "fixtureSha256",
+    "method",
+    "checkedAt",
+    "verifier",
+    "outcome",
+)
+EVIDENCE_OPTIONAL_FIELDS = ("network", "endpointHost", "evidenceRef")
+_EVIDENCE_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_EVIDENCE_HOST_RE = re.compile(r"[^/:?#@\s\\]+")
+_EVIDENCE_INSTANT_RE = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z"
+)
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _non_empty_str(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _check_instant(value: object) -> str | None:
+    """Problem with ``checkedAt``, or None. RFC 3339, UTC, with a ``Z``."""
+    if not isinstance(value, str) or not _EVIDENCE_INSTANT_RE.fullmatch(value):
+        return "checkedAt must be an RFC 3339 UTC instant such as 2026-09-28T12:00:00Z"
+    try:
+        datetime.strptime(value.split(".")[0].rstrip("Z"), "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return f"checkedAt {value!r} is not a real date and time"
+    return None
+
+
+def _check_evidence_ref(value: str) -> str | None:
+    if value.startswith("/") or "\\" in value or "\0" in value:
+        return "evidenceRef must be a relative path inside the repository"
+    if any(part in ("", ".", "..") for part in value.split("/")):
+        return "evidenceRef must not contain empty, '.' or '..' path segments"
+    return None
+
+
+def validate_evidence(record: object) -> list[str]:
+    """Return every problem found in one verification record (CF-04 section 3).
+
+    An empty list means the record is structurally valid. This checks the
+    record on its own; ``check_evidence_against_fixtures`` checks that the
+    fixture it names exists with the hash that was verified. Nothing here
+    decides whether a record is *fresh* (CF-04 section 4); freshness is derived
+    elsewhere and never stored.
+    """
+    if not isinstance(record, dict):
+        return ["a verification record must be a JSON object"]
+
+    problems: list[str] = []
+    allowed = set(EVIDENCE_REQUIRED_FIELDS) | set(EVIDENCE_OPTIONAL_FIELDS)
+    for name in EVIDENCE_REQUIRED_FIELDS:
+        if name not in record:
+            problems.append(f"missing required field {name!r}")
+    for name in sorted(set(record) - allowed):
+        problems.append(
+            f"unknown field {name!r}; allowed fields are "
+            + ", ".join(sorted(allowed))
+        )
+
+    version = record.get("verificationVersion")
+    if "verificationVersion" in record and (not _is_int(version) or version != EVIDENCE_VERSION):
+        problems.append(f"verificationVersion must be {EVIDENCE_VERSION}")
+
+    if "fixtureId" in record and not _non_empty_str(record["fixtureId"]):
+        problems.append("fixtureId must be a non-empty string")
+
+    sha = record.get("fixtureSha256")
+    if "fixtureSha256" in record and not (
+        isinstance(sha, str) and _EVIDENCE_SHA256_RE.fullmatch(sha)
+    ):
+        problems.append("fixtureSha256 must be 64 lowercase hex characters")
+
+    method = record.get("method")
+    if "method" in record and method not in EVIDENCE_METHODS:
+        problems.append(f"method must be one of {list(EVIDENCE_METHODS)}")
+
+    if "checkedAt" in record:
+        instant_problem = _check_instant(record["checkedAt"])
+        if instant_problem:
+            problems.append(instant_problem)
+
+    if "outcome" in record and record["outcome"] not in EVIDENCE_OUTCOMES:
+        problems.append(f"outcome must be one of {list(EVIDENCE_OUTCOMES)}")
+
+    if "verifier" in record:
+        verifier = record["verifier"]
+        if not isinstance(verifier, dict):
+            problems.append("verifier must be an object with name and version")
+        else:
+            for name in ("name", "version"):
+                if not _non_empty_str(verifier.get(name)):
+                    problems.append(f"verifier.{name} must be a non-empty string")
+            for name in sorted(set(verifier) - {"name", "version"}):
+                problems.append(f"unknown field {name!r} in verifier")
+
+    network = record.get("network")
+    if network is not None:
+        if not isinstance(network, dict):
+            problems.append("network must be an object or null")
+        else:
+            if not _non_empty_str(network.get("name")):
+                problems.append("network.name must be a non-empty string")
+            if not _non_empty_str(network.get("passphrase")):
+                problems.append("network.passphrase must be a non-empty string")
+            observed = network.get("observedProtocol")
+            if not _is_int(observed) or observed < 0:
+                problems.append("network.observedProtocol must be a non-negative integer")
+            for name in sorted(set(network) - {"name", "passphrase", "observedProtocol"}):
+                problems.append(f"unknown field {name!r} in network")
+
+    host = record.get("endpointHost")
+    if host is not None and not (isinstance(host, str) and _EVIDENCE_HOST_RE.fullmatch(host)):
+        problems.append(
+            "endpointHost must be a host name only: no scheme, port, path, query, "
+            "credentials or whitespace"
+        )
+
+    reference = record.get("evidenceRef")
+    if reference is not None:
+        if not _non_empty_str(reference):
+            problems.append("evidenceRef must be a non-empty string or null")
+        else:
+            reference_problem = _check_evidence_ref(reference)
+            if reference_problem:
+                problems.append(reference_problem)
+
+    if method in EVIDENCE_LIVE_METHODS:
+        if not isinstance(network, dict):
+            problems.append(f"method {method!r} requires a network object (name, passphrase, observedProtocol)")
+        if host is None:
+            problems.append(f"method {method!r} requires endpointHost")
+        if reference is None:
+            problems.append(
+                f"method {method!r} requires evidenceRef: a live record must point at "
+                "the captured request and response it was made from"
+            )
+    return problems
+
+
+def validate_evidence_file(path: Path, report: Report) -> dict | None:
+    """Parse one evidence file and report its problems. Returns the record."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        report.error(path, f"cannot read the evidence file: {error}")
+        return None
+    try:
+        record = json.loads(text)
+    except json.JSONDecodeError as error:
+        report.error(path, f"not valid JSON: {error}")
+        return None
+    problems = validate_evidence(record)
+    for problem in problems:
+        report.error(path, problem)
+    return record if not problems else None
+
+
+def find_evidence_files(target: Path) -> list[Path]:
+    """``*.json`` files under a directory, or the file itself, sorted."""
+    if target.is_dir():
+        return sorted(p for p in target.rglob("*.json") if p.is_file())
+    return [target]
+
+
+def fixture_hashes(roots: list[Path]) -> dict[str, str]:
+    """``{fixture id: sha256 of the fixture file}`` for every loadable fixture."""
+    hashes: dict[str, str] = {}
+    scratch = Report()
+    for root in roots:
+        for path in find_fixture_files(root):
+            fx = load_fixture(path, scratch)
+            fixture_id = known_fixture_id(fx) if fx is not None else None
+            if fixture_id:
+                hashes.setdefault(fixture_id, hashlib.sha256(path.read_bytes()).hexdigest())
+    return hashes
+
+
+def check_evidence_against_fixtures(
+    path: Path, record: dict, hashes: dict[str, str], report: Report
+) -> None:
+    """The record's fixture must exist, and its hash must be the current one.
+
+    A record whose ``fixtureSha256`` differs from the current file describes an
+    earlier version of the fixture (CF-04 section 4, ``historical``): it is
+    reported so it is never read as evidence for the file that is there now.
+    """
+    fixture_id = record.get("fixtureId")
+    if fixture_id not in hashes:
+        report.error(path, f"fixtureId {fixture_id!r} does not match any fixture")
+    elif hashes[fixture_id] != record.get("fixtureSha256"):
+        report.error(
+            path,
+            f"fixtureSha256 does not match the current {fixture_id!r} fixture file "
+            f"(current {hashes[fixture_id]}); the record describes an earlier version",
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="validate.py",
@@ -784,6 +1002,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "directories to scan for *.toml fixtures (default: every protocol-*/ "
             "directory next to this script)"
+        ),
+    )
+    parser.add_argument(
+        "--evidence",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="PATH",
+        help=(
+            "a verification record file, or a directory of *.json records (CF-04); "
+            "may be given more than once. Each record is validated and must name a "
+            "fixture in the scanned roots with the hash that was verified"
         ),
     )
     parser.add_argument(
@@ -866,6 +1096,19 @@ def main(argv: list[str]) -> int:
         sys.stdout.write(render_json(build_json_report(combined, roots, total_files)))
         return 0 if combined.ok else 1
 
+    evidence_files: list[Path] = []
+    for target in args.evidence:
+        if not target.exists():
+            combined.error(target, "evidence path does not exist")
+            continue
+        evidence_files.extend(find_evidence_files(target))
+    if evidence_files:
+        hashes = fixture_hashes([r for r in roots if r.is_dir()])
+        for path in evidence_files:
+            record = validate_evidence_file(path, combined)
+            if record is not None:
+                check_evidence_against_fixtures(path, record, hashes, combined)
+
     if not args.quiet:
         for warning in combined.warnings:
             print(f"warning: {warning}")
@@ -873,7 +1116,10 @@ def main(argv: list[str]) -> int:
         print(f"error: {error}", file=sys.stderr)
 
     if combined.ok:
-        print(f"OK: {total_files} fixture file(s) valid across {len(roots)} root(s)")
+        summary = f"OK: {total_files} fixture file(s) valid across {len(roots)} root(s)"
+        if evidence_files:
+            summary += f"; {len(evidence_files)} evidence record(s) valid"
+        print(summary)
         return 0
     print(f"FAILED: {len(combined.errors)} error(s)", file=sys.stderr)
     return 1

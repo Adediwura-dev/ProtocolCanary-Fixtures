@@ -1623,5 +1623,262 @@ class SourceReferenceFormatTests(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
 
 
+class VerificationEvidenceTests(unittest.TestCase):
+    """validate_evidence (F-006, CF-04 sections 3 and 8)."""
+
+    LIVE = {
+        "verificationVersion": 1,
+        "fixtureId": "p28-rpc-network",
+        "fixtureSha256": "a" * 64,
+        "method": "live-read-only",
+        "checkedAt": "2026-09-28T12:30:00Z",
+        "network": {
+            "name": "testnet",
+            "passphrase": "Test SDF Network ; September 2015",
+            "observedProtocol": 28,
+        },
+        "endpointHost": "soroban-testnet.stellar.org",
+        "verifier": {"name": "stellar-canary", "version": "0.1.1"},
+        "evidenceRef": "evidence/p28-rpc-network.json",
+        "outcome": "matched",
+    }
+    OFFLINE = {
+        "verificationVersion": 1,
+        "fixtureId": "p28-xdr-example",
+        "fixtureSha256": "b" * 64,
+        "method": "structural",
+        "checkedAt": "2026-10-01T00:00:00Z",
+        "verifier": {"name": "validate.py", "version": "1"},
+        "outcome": "matched",
+    }
+
+    def problems(self, **changes) -> list[str]:
+        record = copy.deepcopy(self.LIVE)
+        for key, value in changes.items():
+            if value is _MISSING:
+                record.pop(key, None)
+            else:
+                record[key] = value
+        return validate.validate_evidence(record)
+
+    def test_valid_live_and_offline_records_pass(self) -> None:
+        self.assertEqual(validate.validate_evidence(self.LIVE), [])
+        self.assertEqual(validate.validate_evidence(self.OFFLINE), [])
+
+    def test_offline_methods_may_carry_null_network_fields(self) -> None:
+        record = copy.deepcopy(self.OFFLINE)
+        record.update(
+            method="source-checked", network=None, endpointHost=None, evidenceRef=None
+        )
+        self.assertEqual(validate.validate_evidence(record), [])
+
+    def test_a_record_must_be_an_object(self) -> None:
+        for bad in ([], "text", 7, None):
+            self.assertTrue(validate.validate_evidence(bad))
+
+    def test_each_mandatory_field_is_required(self) -> None:
+        for name in validate.EVIDENCE_REQUIRED_FIELDS:
+            with self.subTest(name):
+                found = self.problems(**{name: _MISSING})
+                self.assertTrue(any(name in p for p in found), found)
+
+    def test_unknown_fields_are_rejected(self) -> None:
+        found = self.problems(notes="free text")
+        self.assertTrue(any("unknown field 'notes'" in p for p in found), found)
+
+    def test_unknown_fields_in_nested_objects_are_rejected(self) -> None:
+        verifier = dict(self.LIVE["verifier"], vendor="x")
+        self.assertTrue(any("verifier" in p for p in self.problems(verifier=verifier)))
+        network = dict(self.LIVE["network"], chainId=1)
+        self.assertTrue(any("network" in p for p in self.problems(network=network)))
+
+    def test_version_must_be_the_integer_one(self) -> None:
+        for bad in (2, "1", True, 1.0, None):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(verificationVersion=bad))
+
+    def test_fixture_hash_must_be_64_lowercase_hex(self) -> None:
+        for bad in ("A" * 64, "a" * 63, "g" * 64, "", 5):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(fixtureSha256=bad))
+
+    def test_method_and_outcome_are_closed_sets(self) -> None:
+        self.assertTrue(self.problems(method="unknown"))
+        self.assertTrue(self.problems(method="live"))
+        self.assertTrue(self.problems(outcome="passed"))
+
+    def test_checked_at_must_be_a_utc_instant(self) -> None:
+        for good in ("2026-09-28T12:00:00Z", "2026-09-28T12:00:00.123Z"):
+            self.assertEqual(self.problems(checkedAt=good), [], good)
+        for bad in (
+            "2026-09-28",
+            "2026-09-28T12:00:00",
+            "2026-09-28T12:00:00+00:00",
+            "2026-09-28T12:00:00+01:00",
+            "2026-13-40T12:00:00Z",
+            "2026-09-28T25:00:00Z",
+            "yesterday",
+            20260928,
+        ):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(checkedAt=bad))
+
+    def test_live_record_without_network_fails(self) -> None:
+        for method in validate.EVIDENCE_LIVE_METHODS:
+            with self.subTest(method):
+                found = self.problems(method=method, network=_MISSING)
+                self.assertTrue(any("requires a network object" in p for p in found), found)
+                found = self.problems(method=method, network=None)
+                self.assertTrue(any("requires a network object" in p for p in found), found)
+
+    def test_live_record_without_passphrase_or_observed_protocol_fails(self) -> None:
+        no_passphrase = {"name": "testnet", "observedProtocol": 28}
+        found = self.problems(network=no_passphrase)
+        self.assertTrue(any("network.passphrase" in p for p in found), found)
+        no_protocol = {"name": "testnet", "passphrase": "Test SDF Network ; September 2015"}
+        found = self.problems(network=no_protocol)
+        self.assertTrue(any("network.observedProtocol" in p for p in found), found)
+
+    def test_observed_protocol_must_be_a_non_negative_integer(self) -> None:
+        for bad in (-1, "28", 28.5, True, None):
+            network = dict(self.LIVE["network"], observedProtocol=bad)
+            with self.subTest(bad):
+                self.assertTrue(self.problems(network=network))
+
+    def test_live_record_needs_endpoint_host_and_evidence_ref(self) -> None:
+        self.assertTrue(any("endpointHost" in p for p in self.problems(endpointHost=_MISSING)))
+        self.assertTrue(any("evidenceRef" in p for p in self.problems(evidenceRef=_MISSING)))
+        self.assertTrue(any("evidenceRef" in p for p in self.problems(evidenceRef=None)))
+
+    def test_endpoint_host_must_be_a_bare_host_name(self) -> None:
+        for bad in (
+            "https://rpc.example.org",
+            "rpc.example.org:443",
+            "rpc.example.org/path",
+            "rpc.example.org?key=1",
+            "user@rpc.example.org",
+            "rpc example.org",
+            "",
+        ):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(endpointHost=bad))
+
+    def test_evidence_ref_must_stay_inside_the_repository(self) -> None:
+        for bad in ("/etc/passwd", "../outside.json", "a/../b.json", "a\\b.json", "a//b.json"):
+            with self.subTest(bad):
+                self.assertTrue(self.problems(evidenceRef=bad))
+
+    def test_validator_agrees_with_the_json_schema(self) -> None:
+        schema_path = REPO_ROOT / "schemas" / "verification-v1.schema.json"
+        schema = __import__("json").loads(schema_path.read_text(encoding="utf-8"))
+        # jsonschema_lite has no `allOf`; the conditional live-method rules it
+        # holds are asserted directly in the tests above.
+        schema.pop("allOf", None)
+        schema["properties"]["checkedAt"].pop("format", None)
+        lite_spec = importlib.util.spec_from_file_location(
+            "jsonschema_lite_for_evidence",
+            REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py",
+        )
+        lite = importlib.util.module_from_spec(lite_spec)
+        assert lite_spec.loader is not None
+        lite_spec.loader.exec_module(lite)
+        cases = [
+            self.LIVE,
+            self.OFFLINE,
+            dict(self.LIVE, notes="x"),
+            dict(self.LIVE, fixtureSha256="short"),
+            dict(self.LIVE, method="unknown"),
+            dict(self.LIVE, verificationVersion=2),
+            {k: v for k, v in self.LIVE.items() if k != "outcome"},
+            dict(self.LIVE, endpointHost="https://x.example"),
+        ]
+        for record in cases:
+            with self.subTest(record=record.get("fixtureId"), keys=len(record)):
+                # The validator is at least as strict as the schema: whatever
+                # the schema rejects, it rejects too.
+                if lite.validate(record, schema):
+                    self.assertTrue(validate.validate_evidence(record))
+                if not validate.validate_evidence(record):
+                    self.assertEqual(lite.validate(record, schema), [])
+
+
+class EvidenceCommandLineTests(unittest.TestCase):
+    """--evidence on the command line: files, directories and fixture checks."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        pack = self.root / "protocol-28"
+        pack.mkdir()
+        self.fixture = pack / "p28-xdr-example.toml"
+        self.fixture.write_text(VALID_XDR, encoding="utf-8", newline="\n")
+        self.fixture_id = tomllib.loads(VALID_XDR)["id"]
+        self.sha = __import__("hashlib").sha256(self.fixture.read_bytes()).hexdigest()
+        self.evidence = self.root / "evidence"
+        self.evidence.mkdir()
+
+    def record(self, **changes) -> dict:
+        data = dict(VerificationEvidenceTests.OFFLINE)
+        data.update(fixtureId=self.fixture_id, fixtureSha256=self.sha)
+        data.update(changes)
+        return data
+
+    def write(self, name: str, data) -> Path:
+        path = self.evidence / name
+        path.write_text(__import__("json").dumps(data), encoding="utf-8")
+        return path
+
+    def run_main(self, *args: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = validate.main([str(self.root / "protocol-28"), *args])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_valid_evidence_directory_passes(self) -> None:
+        self.write("a.json", self.record())
+        code, out, err = self.run_main("--evidence", str(self.evidence))
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 evidence record(s) valid", out)
+
+    def test_an_invalid_record_fails_with_its_path(self) -> None:
+        path = self.write("bad.json", self.record(method="live-read-only"))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("bad.json", err)
+        self.assertIn("requires a network object", err)
+
+    def test_unknown_fixture_id_fails(self) -> None:
+        path = self.write("ghost.json", self.record(fixtureId="p28-xdr-ghost"))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("does not match any fixture", err)
+
+    def test_stale_fixture_hash_fails(self) -> None:
+        path = self.write("old.json", self.record(fixtureSha256="c" * 64))
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("earlier version", err)
+
+    def test_malformed_json_and_missing_path_fail(self) -> None:
+        broken = self.evidence / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        code, _, err = self.run_main("--evidence", str(broken))
+        self.assertEqual(code, 1)
+        self.assertIn("not valid JSON", err)
+        code, _, err = self.run_main("--evidence", str(self.root / "absent"))
+        self.assertEqual(code, 1)
+        self.assertIn("does not exist", err)
+
+    def test_without_the_flag_nothing_changes(self) -> None:
+        self.write("bad.json", {"verificationVersion": 9})
+        code, out, _ = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("evidence", out)
+
+
+_MISSING = object()
+
+
 if __name__ == "__main__":
     unittest.main()
