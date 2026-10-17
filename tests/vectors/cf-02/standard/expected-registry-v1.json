@@ -1,0 +1,40 @@
+{
+  "registryVersion": 1,
+  "protocol": 28,
+  "fixtures": [
+    {
+      "id": "p28-rpc-cf02-standard-alpha",
+      "path": "shallow/p28-rpc-cf02-standard-alpha.toml",
+      "sha256": "b29bb992e70a0c4c0fc3e5ae101b111179a0a6183d8fd86de6eeaf496775ae10",
+      "surface": "rpc",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: id sorts first, path sorts last, one capability required",
+      "sourceReference": "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork",
+      "requiredCapabilities": [
+        "rpc-client"
+      ],
+      "payloads": []
+    },
+    {
+      "id": "p28-xdr-cf02-standard-beta",
+      "path": "deep/level1/p28-xdr-cf02-standard-beta.toml",
+      "sha256": "baebc3fba3344936704e1292f3a74d110c09b9651d9b127dc65817a894314496",
+      "surface": "xdr",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: id sorts last, path sorts first, two payloads and an empty capability list",
+      "sourceReference": "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x",
+      "requiredCapabilities": [],
+      "payloads": [
+        {
+          "path": "deep/level1/payloads/beta-expected.bin",
+          "sha256": "130e99e08f48dceb6a7e04b715e86276c31ce1ba6fde29bec6b4fdec82e4ff63"
+        },
+        {
+          "path": "deep/level1/payloads/beta-input.bin",
+          "sha256": "2f19def54e5419326801f6532d72ae507f5d97c03c4f01126e512cab3c8fce2c"
+        }
+      ]
+    }
+  ],
+  "packDigest": "sha256:83191069a8cdfab9f1c4d5fc9d1b6695b167c9dc364006e939b36fe6f525de10"
+}

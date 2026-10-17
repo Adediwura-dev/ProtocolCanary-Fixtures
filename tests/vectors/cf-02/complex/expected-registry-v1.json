@@ -1,0 +1,63 @@
+{
+  "registryVersion": 1,
+  "protocol": 28,
+  "fixtures": [
+    {
+      "id": "p28-rpc-cf02-complex-bravo",
+      "path": "deep/level1/set-b/p28-rpc-cf02-complex-bravo.toml",
+      "sha256": "22c22d32f639c61a3fe5425fd30ef69bfae19711f1b9faf869ef59f223816b04",
+      "surface": "rpc",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: component-wise path order would put set/a first (café, 中文)",
+      "sourceReference": "https://developers.stellar.org/docs/data/apis/rpc/api-reference/methods/getNetwork",
+      "requiredCapabilities": [
+        "rpc-client"
+      ],
+      "payloads": []
+    },
+    {
+      "id": "p28-soroban-cf02-complex-shared-alpha",
+      "path": "deep/level1/set/a/p28-soroban-cf02-complex-shared-alpha.toml",
+      "sha256": "48d3147c2b8ffb5da806226226a3775765db116aeb8d6eefe0515f290aa45141",
+      "surface": "soroban",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: references the payload its sibling also references, as input_file",
+      "sourceReference": "https://developers.stellar.org/docs/tokens/stellar-asset-contract",
+      "requiredCapabilities": [
+        "soroban-contract"
+      ],
+      "payloads": [
+        {
+          "path": "deep/level1/set/a/payloads/shared.bin",
+          "sha256": "5ff5572b0e56466c1bf1600c2c5253c14345820eecbe2b41bc3915ad5fa97090"
+        }
+      ]
+    },
+    {
+      "id": "p28-xdr-cf02-complex-shared-zero",
+      "path": "deep/level1/set/a/p28-xdr-cf02-complex-shared-zero.toml",
+      "sha256": "af4970d58d0c54cd5a536b568242854e27346b18f7bb34ff5d2bf182ca398fad",
+      "surface": "xdr",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: references the same payload as its sibling, as expected_file",
+      "sourceReference": "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x",
+      "payloads": [
+        {
+          "path": "deep/level1/set/a/payloads/shared.bin",
+          "sha256": "5ff5572b0e56466c1bf1600c2c5253c14345820eecbe2b41bc3915ad5fa97090"
+        }
+      ]
+    },
+    {
+      "id": "p28-xdr-cf02-complex-upper",
+      "path": "ZZ-upper/p28-xdr-cf02-complex-upper.toml",
+      "sha256": "ba68be41fe8e1ec4d1ff493c670ca8bd8241233b39de0ba1cfc7e0aa73b95625",
+      "surface": "xdr",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: path sorts first because of an uppercase directory, id sorts last",
+      "sourceReference": "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x",
+      "payloads": []
+    }
+  ],
+  "packDigest": "sha256:77eff8c3c5a31534db7943636f7ef4486cc318059745fe7a5400d1916a3bfbba"
+}

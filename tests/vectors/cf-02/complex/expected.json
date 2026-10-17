@@ -1,0 +1,54 @@
+{
+  "vector": "complex",
+  "contract": "CF-02",
+  "contractReference": "https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-02-registry-and-digest.md",
+  "packRoot": "pack",
+  "protocol": 28,
+  "purpose": "A four-fixture, five-file pack that separates byte order from component-wise order, shares one payload between two fixtures, and carries non-ASCII text into the registry.",
+  "exercises": [
+    "byte order differs from component-wise order: set-b sorts before set/a because '-' (0x2d) is below '/' (0x2f)",
+    "an uppercase directory makes a path sort first by byte order while its fixture id sorts last",
+    "one payload referenced by two fixtures: listed twice in the registry, counted once in the digest input",
+    "a non-ASCII description (an accented Latin word and CJK text) pins UTF-8 manifest bytes rather than backslash-u escapes",
+    "all three surfaces (xdr, rpc, soroban) in one registry"
+  ],
+  "maxDepth": 5,
+  "fixtureIds": [
+    "p28-rpc-cf02-complex-bravo",
+    "p28-soroban-cf02-complex-shared-alpha",
+    "p28-xdr-cf02-complex-shared-zero",
+    "p28-xdr-cf02-complex-upper"
+  ],
+  "packFiles": [
+    {
+      "path": "ZZ-upper/p28-xdr-cf02-complex-upper.toml",
+      "sha256": "ba68be41fe8e1ec4d1ff493c670ca8bd8241233b39de0ba1cfc7e0aa73b95625",
+      "size": 1445
+    },
+    {
+      "path": "deep/level1/set-b/p28-rpc-cf02-complex-bravo.toml",
+      "sha256": "22c22d32f639c61a3fe5425fd30ef69bfae19711f1b9faf869ef59f223816b04",
+      "size": 1861
+    },
+    {
+      "path": "deep/level1/set/a/p28-soroban-cf02-complex-shared-alpha.toml",
+      "sha256": "48d3147c2b8ffb5da806226226a3775765db116aeb8d6eefe0515f290aa45141",
+      "size": 2186
+    },
+    {
+      "path": "deep/level1/set/a/p28-xdr-cf02-complex-shared-zero.toml",
+      "sha256": "af4970d58d0c54cd5a536b568242854e27346b18f7bb34ff5d2bf182ca398fad",
+      "size": 1483
+    },
+    {
+      "path": "deep/level1/set/a/payloads/shared.bin",
+      "sha256": "5ff5572b0e56466c1bf1600c2c5253c14345820eecbe2b41bc3915ad5fa97090",
+      "size": 31
+    }
+  ],
+  "packDigest": "sha256:77eff8c3c5a31534db7943636f7ef4486cc318059745fe7a5400d1916a3bfbba",
+  "registry": {
+    "file": "expected-registry-v1.json",
+    "sha256": "d2e5f66f208ccadcbb2f7180277cfa903d4b25d93cbd09abf3e491105a3c26d2"
+  }
+}

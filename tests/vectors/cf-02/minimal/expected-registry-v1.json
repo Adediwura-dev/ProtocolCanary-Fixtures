@@ -1,0 +1,17 @@
+{
+  "registryVersion": 1,
+  "protocol": 28,
+  "fixtures": [
+    {
+      "id": "p28-xdr-cf02-minimal",
+      "path": "p28-xdr-cf02-minimal.toml",
+      "sha256": "271958707c796c0df8e11bb798c818e28fd09f13df554fd56f6792cd1e6d2cd0",
+      "surface": "xdr",
+      "category": "registry-conformance",
+      "description": "CF-02 vector: the only fixture in the minimal pack, stored at the pack root",
+      "sourceReference": "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x",
+      "payloads": []
+    }
+  ],
+  "packDigest": "sha256:747ca470959eecf9c9dd70aa33c2e9d686e2a25929a3476c2593f9cd64b0ee05"
+}
