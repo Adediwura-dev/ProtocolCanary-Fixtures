@@ -171,6 +171,17 @@ discussion and diff. New entries must include that link; see
   [Protocol-Canary#512](https://github.com/StellarCanary/Protocol-Canary/issues/512).
   <!-- TODO: switch to the PR link once this PR is opened. -->
   ([#288])
+- `protocol-29/` baseline pack scaffold: `registry-v1.json` declaring
+  `registryVersion: 1`, `protocol: 29` (integer) and the empty
+  `fixtures: []` array, with `rpc/`, `xdr/` and `soroban/` subdirectories,
+  and `tests/test_protocol29_baseline.py` asserting the manifest against
+  `schemas/registry-v1.schema.json`, the canonical CF-02 section 3/5
+  encoding and `packDigest`, and that the validator accepts the new
+  directory without diagnostics. The empty baseline is a directory
+  scaffold only, never reportable as compatibility coverage;
+  `protocol-28/` is untouched.
+  ([PR #318])
+
 - `protocol-29/evidence/testnet/`: read-only live Testnet evidence corpus
   (F-034, CF-04-H) — raw JSON-RPC captures of `getNetwork`,
   `getLatestLedger` and `getVersionInfo` taken 2026-10-18 UTC from
@@ -384,4 +395,5 @@ discussion and diff. New entries must include that link; see
 [PR #309]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/309
 [PR #315]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/315
 [PR #316]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/316
+[PR #318]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/318
 [PR #319]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/319
