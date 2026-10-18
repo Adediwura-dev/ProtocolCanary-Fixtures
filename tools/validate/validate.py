@@ -90,7 +90,10 @@ SOROBAN_EXPECT_FIELDS = ("kind", "message_contains")
 # enum in schemas/fixture-v1.schema.json (the same cross-reference is
 # documented there). The two lists are maintained independently (a
 # Python set and a JSON Schema enum), so adding a value to one without
-# the other silently creates a validator/schema mismatch.
+# the other silently creates a validator/schema mismatch. The canonical
+# vocabulary is published in tests/fixtures/capabilities.json (F-032),
+# and tests/test_validate.py pins this set, the schema's enum and that
+# file to each other, so a divergence in any of the three fails the suite.
 CAPABILITIES = {
     "soroban-contract",
     "rpc-client",

@@ -64,9 +64,7 @@
           "wasm-artifact",
           "raw-ledger-access"
         ]
-      },
-      "description": "kebab-case canary_core::Capability values. A fixture requiring a capability the target project lacks is skipped, not failed. This enum must be kept in sync with CAPABILITIES in tools/validate/validate.py and with canary_core::Capability in StellarCanary/Protocol-Canary; the two lists are maintained independently (a JSON Schema enum and a Python set), so a new capability added to one without the other silently creates a validator/schema mismatch."
-    },
+      },"description": "kebab-case canary_core::Capability values. A fixture requiring a capability the target project lacks is skipped, not failed. This enum must be kept in sync with CAPABILITIES in tools/validate/validate.py and with canary_core::Capability in StellarCanary/Protocol-Canary; the three lists are maintained independently (a JSON Schema enum, a Python set and a Rust type), so a new capability added to one without the others silently creates a divergence. tests/fixtures/capabilities.json (F-032) publishes the canonical vocabulary, and tests/test_validate.py pins this enum, the validator's set and that file to each other; engine-side parity is tracked in StellarCanary/Protocol-Canary#512."},
     "input_file": {
       "type": "string",
       "minLength": 1,

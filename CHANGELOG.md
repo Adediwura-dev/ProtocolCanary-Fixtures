@@ -162,6 +162,15 @@ discussion and diff. New entries must include that link; see
   Protocol 28 and 29 on Testnet and Mainnet, and the network passphrases,
   with `tests/test_upstream_matrix_docs.py` keeping the page and the matrix
   in agreement. ([PR #306])
+- `tests/fixtures/capabilities.json`: the canonical `required_capabilities`
+  vocabulary (the 5 approved capability strings, CF-07 section 9), pinned by
+  `tests/test_validate.py` against `CAPABILITIES` in
+  `tools/validate/validate.py` and the schema's enum, with a positive test
+  for every approved capability and negative tests for unapproved strings
+  (e.g. `fake-cap`). Engine-side parity is tracked in
+  [Protocol-Canary#512](https://github.com/StellarCanary/Protocol-Canary/issues/512).
+  <!-- TODO: switch to the PR link once this PR is opened. -->
+  ([#288])
 
 ### Changed
 
