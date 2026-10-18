@@ -90,7 +90,10 @@ SOROBAN_EXPECT_FIELDS = ("kind", "message_contains")
 # enum in schemas/fixture-v1.schema.json (the same cross-reference is
 # documented there). The two lists are maintained independently (a
 # Python set and a JSON Schema enum), so adding a value to one without
-# the other silently creates a validator/schema mismatch.
+# the other silently creates a validator/schema mismatch. The canonical
+# vocabulary is published in tests/fixtures/capabilities.json (F-032),
+# and tests/test_validate.py pins this set, the schema's enum and that
+# file to each other, so a divergence in any of the three fails the suite.
 CAPABILITIES = {
     "soroban-contract",
     "rpc-client",
@@ -157,6 +160,30 @@ SOROBAN_REQUIRED_FIELDS = (
 # Fields required only for one XDR ``kind`` value; mirrors the nested if/then
 # in the schema's xdr block.
 XDR_CONDITIONAL_REQUIRED_FIELDS = {"encode-equals": ("expected_base64",)}
+
+# Keys accepted at the top level of a fixture beyond the required common
+# fields (F-031), and the extra keys each surface's body contributes. A
+# fixture's top level accepts COMMON_REQUIRED_FIELDS + these optional keys
+# + exactly its own surface's keys; anything else -- a typo such as
+# ``descriptoin``, or a field that belongs to another surface -- is an
+# error rather than silently ignored, mirroring ``additionalProperties:
+# false`` in schemas/fixture-v1.schema.json. The tuples must stay in sync
+# with that schema's per-surface ``properties`` blocks.
+COMMON_OPTIONAL_FIELDS = ("required_capabilities", "input_file", "expected_file")
+SURFACE_FIELDS = {
+    "xdr": ("type", "kind", "value_base64", "expected_base64"),
+    "rpc": ("method", "assert"),
+    "soroban": (
+        "source_account",
+        "contract_id",
+        "function",
+        "sequence_number",
+        "args",
+        "expect",
+    ),
+}
+# Keys a single [[assert]] table may carry (the schema's assert.items).
+RPC_ASSERT_FIELDS = ("kind", "field", "value", "expected_type")
 
 
 @dataclass
@@ -550,6 +577,34 @@ def validate_common_fields(fx: Fixture, report: Report) -> None:
                 )
 
 
+def validate_top_level_keys(fx: Fixture, report: Report) -> None:
+    """Reject top-level keys the fixture contract does not declare (F-031).
+
+    The top level accepts the common fields plus exactly the keys its own
+    surface consumes, so a typo'd field (``descriptoin``) or one belonging
+    to a different surface fails here instead of passing silently while the
+    intended field is reported missing. The check runs only for a
+    recognized ``surface``: with an unknown surface (already reported by
+    ``validate_common_fields``) every surface key would look undeclared and
+    bury the real error in noise.
+    """
+    surface = fx.data.get("surface")
+    if surface not in SURFACE_FIELDS:
+        return
+    allowed = (
+        set(COMMON_REQUIRED_FIELDS)
+        | set(COMMON_OPTIONAL_FIELDS)
+        | set(SURFACE_FIELDS[surface])
+    )
+    for key in sorted(set(fx.data) - allowed):
+        report.error(
+            fx.path,
+            f"unexpected top-level key {key!r}; a {surface!r} fixture accepts only "
+            f"{sorted(allowed)}",
+            line=_field_line(fx.path, key),
+        )
+
+
 def _validate_base64(value: str, field_name: str, path: Path, report: Report) -> None:
     try:
         base64.b64decode(value, validate=True)
@@ -628,6 +683,13 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
             report.error(
                 path,
                 f"assert[{i}].kind must be one of {sorted(RPC_ASSERT_KINDS)}, got {kind!r}",
+            )
+        unknown_assert_keys = sorted(set(a) - set(RPC_ASSERT_FIELDS))
+        if unknown_assert_keys:
+            report.error(
+                path,
+                f"unexpected key(s) {', '.join(repr(k) for k in unknown_assert_keys)} in "
+                f"assert[{i}]; accepted keys are {sorted(RPC_ASSERT_FIELDS)}",
             )
         if not a.get("field"):
             report.error(path, f"assert[{i}] missing required non-empty 'field'")
@@ -766,6 +828,7 @@ def validate_directory(root: Path) -> Report:
     for fx in fixtures:
         validate_common_fields(fx, report)
         validate_body(fx, report)
+        validate_top_level_keys(fx, report)
 
     validate_unique_ids(fixtures, report)
     return report

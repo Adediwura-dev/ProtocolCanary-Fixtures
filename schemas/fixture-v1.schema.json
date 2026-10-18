@@ -2,8 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/StellarCanary/ProtocolCanary-Fixtures/main/schemas/fixture-v1.schema.json",
   "title": "Protocol Canary fixture (schema_version 1)",
-  "description": "A single compatibility-assertion fixture consumed by StellarCanary/Protocol-Canary's canary-fixtures loader. This schema mirrors that implementation (see Protocol-Canary's docs/fixture-contract.md); it is a convenience for editor/CI linting in this repository, not an independent specification. On any disagreement, Protocol-Canary's implementation is authoritative. Note: this top-level object intentionally leaves additionalProperties unset, so unknown top-level fields are permitted (not rejected) — matching tools/validate/validate.py, which performs no unknown-field check. tools/validate/schema_sync.py checks this schema's enums and required-field lists against tools/validate/validate.py's constants, so the two cannot drift unnoticed. See CONTRIBUTING.md for the rationale.",
+  "description": "A single compatibility-assertion fixture consumed by StellarCanary/Protocol-Canary's canary-fixtures loader. This schema mirrors that implementation (see Protocol-Canary's docs/fixture-contract.md); it is a convenience for editor/CI linting in this repository, not an independent specification. On any disagreement, Protocol-Canary's implementation is authoritative. Strictness note (F-031): the top-level object and every nested object set additionalProperties: false, so an undeclared (typo'd) key is rejected here and by tools/validate/validate.py's unknown-key check. The top-level properties list the union of the common fields and every surface's keys — additionalProperties can only see properties declared in this same schema object — while the per-surface conditionals under allOf enforce which subset each surface actually accepts and carry the strict enums. tools/validate/schema_sync.py checks this schema's enums and required-field lists against tools/validate/validate.py's constants, so the two cannot drift unnoticed. See CONTRIBUTING.md for the rationale.",
   "type": "object",
+  "additionalProperties": false,
   "required": ["id", "protocol", "surface", "category", "description", "source_reference"],
   "$comment": "examples mirrors protocol-28/xdr/cap-0085/p28-xdr-cap85-external-ref-roundtrip.toml; keep the two in sync.",
   "examples": [
@@ -64,9 +65,7 @@
           "wasm-artifact",
           "raw-ledger-access"
         ]
-      },
-      "description": "kebab-case canary_core::Capability values. A fixture requiring a capability the target project lacks is skipped, not failed. This enum must be kept in sync with CAPABILITIES in tools/validate/validate.py and with canary_core::Capability in StellarCanary/Protocol-Canary; the two lists are maintained independently (a JSON Schema enum and a Python set), so a new capability added to one without the other silently creates a validator/schema mismatch."
-    },
+      },"description": "kebab-case canary_core::Capability values. A fixture requiring a capability the target project lacks is skipped, not failed. This enum must be kept in sync with CAPABILITIES in tools/validate/validate.py and with canary_core::Capability in StellarCanary/Protocol-Canary; the three lists are maintained independently (a JSON Schema enum, a Python set and a Rust type), so a new capability added to one without the others silently creates a divergence. tests/fixtures/capabilities.json (F-032) publishes the canonical vocabulary, and tests/test_validate.py pins this enum, the validator's set and that file to each other; engine-side parity is tracked in StellarCanary/Protocol-Canary#512."},
     "input_file": {
       "type": "string",
       "minLength": 1,
@@ -76,7 +75,19 @@
       "type": "string",
       "minLength": 1,
       "description": "Path to an externally stored expected-output file, relative to this fixture file's own directory. Existence is checked by the validator; like input_file, the loader does not read the file's contents itself. This is the external-file alternative to inlining the expected value via expected_base64 (used with kind = encode-equals) - a fixture supplies the expected value one way or the other, not both. Prefer an external file for large expected payloads and expected_base64 for short XDR values. (Note: Currently unused by any existing fixture in this repository; expected values are inlined via expected_base64.)"
-    }
+    },
+    "type": { "type": "string" },
+    "kind": { "type": "string" },
+    "value_base64": { "type": "string" },
+    "expected_base64": { "type": "string" },
+    "method": { "type": "string" },
+    "assert": { "type": "array" },
+    "source_account": { "type": "string" },
+    "contract_id": { "type": "string" },
+    "function": { "type": "string" },
+    "sequence_number": { "type": "integer" },
+    "args": { "type": "array" },
+    "expect": { "type": "object" }
   },
   "allOf": [
     {
@@ -119,6 +130,7 @@
             "items": {
               "type": "object",
               "required": ["kind", "field"],
+              "additionalProperties": false,
               "properties": {
                 "kind": {
                   "type": "string",
@@ -170,7 +182,7 @@
                 "description": "Optional, and only meaningful with kind = simulation-error: a substring the simulation's error message must contain. Omit it to assert only that the simulation failed. It must be a non-empty string when present -- canary-soroban reads it as Option<String> via as_str, so a non-string is silently dropped and an empty string matches every message, either way weakening the assertion without any visible error."
               }
             },
-            "$comment": "additionalProperties mirrors canary-soroban's unknown_body_keys(expect, [\"kind\", \"message_contains\"]), which rejects any other key. Unlike the top level of a fixture, where unknown fields are deliberately permitted, [expect] is closed upstream."
+            "$comment": "additionalProperties mirrors canary-soroban's unknown_body_keys(expect, [\"kind\", \"message_contains\"]), which rejects any other key. The fixture's top level is closed the same way in this schema and in tools/validate/validate.py (F-031); unlike [expect], that closure is this repository's own rule rather than a loader limit."
           }
         }
       }

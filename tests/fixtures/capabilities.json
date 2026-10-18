@@ -1,0 +1,10 @@
+{
+  "description": "Canonical required_capabilities vocabulary for Protocol Canary fixtures (CF-07 section 9: https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-07-project-roots-and-detection.md). The single published set that tools/validate/validate.py's CAPABILITIES, schemas/fixture-v1.schema.json's required_capabilities enum, and canary_core::Capability in StellarCanary/Protocol-Canary must agree on; tests/test_validate.py pins all three to this file, and engine-side parity is tracked in https://github.com/StellarCanary/Protocol-Canary/issues/512 (E-114).",
+  "required_capabilities": [
+    "soroban-contract",
+    "rpc-client",
+    "stellar-sdk-dependency",
+    "wasm-artifact",
+    "raw-ledger-access"
+  ]
+}

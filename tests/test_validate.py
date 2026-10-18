@@ -34,6 +34,26 @@ assert _sync_spec.loader is not None
 sys.modules["schema_sync"] = schema_sync
 _sync_spec.loader.exec_module(schema_sync)
 
+# F-032: the published capability vector. tests/fixtures/capabilities.json
+# is the one source of truth that the validator's CAPABILITIES set, the
+# schema's required_capabilities enum and upstream canary_core::Capability
+# (parity tracked in StellarCanary/Protocol-Canary#512) must agree on, so
+# the tests below pin all three to it instead of to each other.
+CAPABILITIES_VECTOR_PATH = REPO_ROOT / "tests" / "fixtures" / "capabilities.json"
+CAPABILITIES_VECTOR = json.loads(CAPABILITIES_VECTOR_PATH.read_text(encoding="utf-8"))
+
+# jsonschema_lite stands in for the third-party `jsonschema` package, which
+# CI does not install (same approach as tests/test_jsonschema_lite.py); used
+# here to check the schema side of the capability vocabulary.
+CAPABILITIES_LITE_PATH = REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py"
+_lite_spec = importlib.util.spec_from_file_location(
+    "validate_jsonschema_lite", CAPABILITIES_LITE_PATH
+)
+jsonschema_lite = importlib.util.module_from_spec(_lite_spec)
+assert _lite_spec.loader is not None
+sys.modules["validate_jsonschema_lite"] = jsonschema_lite
+_lite_spec.loader.exec_module(jsonschema_lite)
+
 
 VALID_XDR = """
 id = "p28-xdr-cap83-example"
@@ -295,6 +315,54 @@ class ValidatorTests(unittest.TestCase):
         good = VALID_XDR + '\nrequired_capabilities = ["soroban-contract"]\n'
         report = self.run_validation({"a.toml": good})
         self.assertEqual(report.errors, [])
+
+    # --- F-032: capability vector parity (tests/fixtures/capabilities.json)
+
+    APPROVED_CAPABILITIES = [
+        "soroban-contract",
+        "rpc-client",
+        "stellar-sdk-dependency",
+        "wasm-artifact",
+        "raw-ledger-access",
+    ]
+
+    def _capabilities_schema_property(self) -> dict:
+        return schema_sync.load_schema()["properties"]["required_capabilities"]
+
+    def test_capability_vector_lists_exactly_the_approved_five(self) -> None:
+        vector = CAPABILITIES_VECTOR["required_capabilities"]
+        self.assertEqual(vector, self.APPROVED_CAPABILITIES)
+        self.assertEqual(len(vector), len(set(vector)), "duplicates in the vector")
+
+    def test_validator_capabilities_match_the_published_vector(self) -> None:
+        self.assertEqual(set(validate.CAPABILITIES), set(self.APPROVED_CAPABILITIES))
+        self.assertEqual(len(validate.CAPABILITIES), 5)
+
+    def test_schema_enum_matches_the_published_vector(self) -> None:
+        enum = self._capabilities_schema_property()["items"]["enum"]
+        self.assertEqual(enum, self.APPROVED_CAPABILITIES)
+
+    def test_each_approved_capability_passes_schema_and_validator(self) -> None:
+        property_schema = self._capabilities_schema_property()
+        for cap in self.APPROVED_CAPABILITIES:
+            with self.subTest(capability=cap):
+                good = VALID_XDR + f'\nrequired_capabilities = ["{cap}"]\n'
+                report = self.run_validation({"a.toml": good})
+                self.assertEqual(report.errors, [])
+                self.assertEqual(jsonschema_lite.validate([cap], property_schema), [])
+
+    def test_unapproved_capability_is_rejected_with_the_allowed_list(self) -> None:
+        bad = VALID_XDR + '\nrequired_capabilities = ["fake-cap"]\n'
+        report = self.run_validation({"a.toml": bad})
+        matching = [e for e in report.errors if "unknown capability 'fake-cap'" in e]
+        self.assertTrue(matching, report.errors)
+        for cap in self.APPROVED_CAPABILITIES:
+            self.assertIn(cap, matching[0])
+
+    def test_schema_rejects_an_unapproved_capability(self) -> None:
+        problems = jsonschema_lite.validate(["fake-cap"], self._capabilities_schema_property())
+        self.assertTrue(problems, "schema accepted an unapproved capability")
+        self.assertIn("fake-cap", problems[0])
 
     def test_rejects_non_array_required_capabilities(self) -> None:
         bad = VALID_XDR + '\nrequired_capabilities = "rpc-client"\n'
@@ -702,17 +770,54 @@ assert = [
         # The valid entry alongside the malformed one must not itself error.
         self.assertFalse(any("assert[0]" in e for e in report.errors))
 
-    def test_unknown_top_level_field_is_not_an_error(self) -> None:
-        # Documents current behavior: validate.py performs no top-level
-        # additionalProperties check, so an unrecognized field (e.g. a typo'd
-        # field name) is silently accepted rather than rejected. If this ever
-        # changes, this test should fail and force a deliberate decision.
+    def test_unknown_top_level_field_is_rejected_and_named(self) -> None:
+        # F-031 flipped the previously documented behavior: an unrecognized
+        # top-level field (here a typo'd source_reference) is now an error,
+        # and the diagnostic names the offending key so the typo is visible.
         with_unknown = VALID_XDR.replace(
             'source_reference = "CAP-0083"',
             'source_reference = "CAP-0083"\nsoure_reference = "typo"',
         )
         report = self.run_validation({"a.toml": with_unknown})
-        self.assertEqual(report.errors, [])
+        self.assertTrue(
+            any("unexpected top-level key 'soure_reference'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_misspelled_top_level_key_is_rejected(self) -> None:
+        # A misspelled duplicate of a valid field must fail outright rather
+        # than pass while the intended field is merely reported missing.
+        with_typo = VALID_XDR + '\ndescriptoin = "example"\n'
+        report = self.run_validation({"a.toml": with_typo})
+        self.assertTrue(
+            any("unexpected top-level key 'descriptoin'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_key_belonging_to_another_surface_is_rejected(self) -> None:
+        # 'method' is a declared fixture key, but only for surface = "rpc".
+        cross_surface = VALID_XDR + '\nmethod = "get-network"\n'
+        report = self.run_validation({"a.toml": cross_surface})
+        self.assertTrue(
+            any("unexpected top-level key 'method'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_unknown_key_in_assert_table_is_rejected(self) -> None:
+        # Section keys are closed too: a misspelled key inside [[assert]]
+        # fails with the key named (the [expect] table has its own test).
+        bad_rpc = RPC_HEADER + RPC_ASSERT_TABLE + '''
+[[assert]]
+kind = "field-exists"
+requrest = "passphrase"
+'''
+        report = self.run_validation({"a.toml": bad_rpc})
+        self.assertTrue(
+            any(
+                "unexpected key(s) 'requrest' in assert[1]" in e for e in report.errors
+            ),
+            report.errors,
+        )
 
     def test_rpc_fixture_requires_at_least_one_assert(self) -> None:
         bad = """
