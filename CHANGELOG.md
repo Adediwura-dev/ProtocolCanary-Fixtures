@@ -171,8 +171,7 @@ discussion and diff. New entries must include that link; see
   RFC 3339 UTC instants, the endpoint allowlist, the read-only method
   guard and a no-credentials scan. The corpus establishes the evidence
   references required before any Protocol 29 fixture is authored.
-  <!-- TODO: switch to the PR link once this PR is opened. -->
-  ([#291])
+  ([PR #319])
 
 ### Changed
 
@@ -363,4 +362,4 @@ discussion and diff. New entries must include that link; see
 [PR #308]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/308
 [PR #309]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/309
 [PR #315]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/315
-[#291]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/291
+[PR #319]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/319
