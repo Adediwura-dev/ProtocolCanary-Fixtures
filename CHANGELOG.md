@@ -162,6 +162,17 @@ discussion and diff. New entries must include that link; see
   Protocol 28 and 29 on Testnet and Mainnet, and the network passphrases,
   with `tests/test_upstream_matrix_docs.py` keeping the page and the matrix
   in agreement. ([PR #306])
+- `protocol-29/evidence/testnet/`: read-only live Testnet evidence corpus
+  (F-034, CF-04-H) — raw JSON-RPC captures of `getNetwork`,
+  `getLatestLedger` and `getVersionInfo` taken 2026-10-18 UTC from
+  `soroban-testnet.stellar.org` (all three report `protocolVersion` 29),
+  stored as data only per CF-04 section 7, plus
+  `tests/test_protocol29_evidence.py` enforcing the closed capture shape,
+  RFC 3339 UTC instants, the endpoint allowlist, the read-only method
+  guard and a no-credentials scan. The corpus establishes the evidence
+  references required before any Protocol 29 fixture is authored.
+  <!-- TODO: switch to the PR link once this PR is opened. -->
+  ([#291])
 
 ### Changed
 
@@ -352,3 +363,4 @@ discussion and diff. New entries must include that link; see
 [PR #308]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/308
 [PR #309]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/309
 [PR #315]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/315
+[#291]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/291
