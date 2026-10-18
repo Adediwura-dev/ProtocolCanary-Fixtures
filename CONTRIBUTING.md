@@ -250,21 +250,22 @@ Per-surface body (everything else in the file):
 
 ### Unknown top-level fields
 
-Neither `tools/validate/validate.py` nor `schemas/fixture-v1.schema.json` sets
-`additionalProperties: false` at the top level, so an unrecognized top-level
-field is **intentionally permitted today** and does not by itself produce a
-validator error. This permissiveness is deliberate — the fixture contract is
-owned by `Protocol-Canary`'s loader, and a hard failure on unknown fields here
-would reject fixtures using fields that loader supports before this
-repository's schema/validator has caught up.
+Both `tools/validate/validate.py` and `schemas/fixture-v1.schema.json`
+reject an unrecognized top-level field (F-031): the top level of a fixture
+is closed to the union of the common fields plus exactly the keys its own
+`surface` consumes, and the schema sets `additionalProperties: false` on
+every object, including the `[[assert]]` tables and the `[expect]` table.
+The validator's diagnostic names the offending key
+(`unexpected top-level key 'soure_reference'; ...`), so a typo'd field name
+fails loudly instead of being silently ignored while the intended field is
+reported missing.
 
-The practical consequence is that a typo'd field name (e.g. `soure_reference`
-instead of `source_reference`) is silently ignored while the intended field is
-reported as missing — or, if the intended field is also present, nothing is
-reported at all. If you get a confusing "missing field" error, check for a
-misspelled duplicate first. Tightening this (rejecting unknown fields) would be
-a deliberate change requiring a matching update to the test that documents the
-current behavior in `tests/test_validate.py` — never an accidental side effect.
+Introducing a genuinely new fixture field therefore needs the key added to
+`SURFACE_FIELDS`/`COMMON_OPTIONAL_FIELDS` in `tools/validate/validate.py`
+and to `properties` in `schemas/fixture-v1.schema.json` in the same change
+that first uses it — and, as before, the loader contract in
+`Protocol-Canary`'s `docs/fixture-contract.md` stays authoritative: add the
+field upstream first, never here alone.
 
 ### Protocol filtering behavior
 
@@ -329,7 +330,7 @@ Quick reference for what contributors hit most often. Each line is the error as
 | `unexpected key(s) '...' in 'expect'; canary-soroban accepts only ['kind', 'message_contains']` | Unlike the top level of a fixture, `[expect]` is closed: `canary-soroban` rejects an unknown key there. Usually a typo (`message_contain`) or a field that belongs at the top level. |
 | `expect.message_contains must be a string, got ...` / `expect.message_contains must not be empty; ...` | The loader reads the field with `toml::Value::as_str`, so a non-string is silently dropped and an empty string matches every message — either way the fixture asserts less than it appears to. Quote the needle, or omit the key entirely to assert only that the simulation fails. |
 | `README.md's fixtures badge is stale; run ...` | You added or removed a `*.toml`, so the fixture count in README.md is now wrong. Run `make badge` and commit the result. |
-| `missing required field '...'` with no obvious cause | Usually a typo'd duplicate of the intended field (e.g. `soure_reference`). Unknown top-level fields are silently ignored — see [Unknown top-level fields](#unknown-top-level-fields). |
+| `missing required field '...'` with no obvious cause | Historically a typo'd duplicate of the intended field (e.g. `soure_reference`). Unknown keys are now rejected outright and named — see [Unknown top-level fields](#unknown-top-level-fields). |
 
 `make check` runs these in CI's order (`validate` → `badge-check` → `test`) and
 stops at the first failure, so fix and re-run after each change rather than

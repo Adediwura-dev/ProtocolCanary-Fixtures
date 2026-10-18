@@ -770,17 +770,54 @@ assert = [
         # The valid entry alongside the malformed one must not itself error.
         self.assertFalse(any("assert[0]" in e for e in report.errors))
 
-    def test_unknown_top_level_field_is_not_an_error(self) -> None:
-        # Documents current behavior: validate.py performs no top-level
-        # additionalProperties check, so an unrecognized field (e.g. a typo'd
-        # field name) is silently accepted rather than rejected. If this ever
-        # changes, this test should fail and force a deliberate decision.
+    def test_unknown_top_level_field_is_rejected_and_named(self) -> None:
+        # F-031 flipped the previously documented behavior: an unrecognized
+        # top-level field (here a typo'd source_reference) is now an error,
+        # and the diagnostic names the offending key so the typo is visible.
         with_unknown = VALID_XDR.replace(
             'source_reference = "CAP-0083"',
             'source_reference = "CAP-0083"\nsoure_reference = "typo"',
         )
         report = self.run_validation({"a.toml": with_unknown})
-        self.assertEqual(report.errors, [])
+        self.assertTrue(
+            any("unexpected top-level key 'soure_reference'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_misspelled_top_level_key_is_rejected(self) -> None:
+        # A misspelled duplicate of a valid field must fail outright rather
+        # than pass while the intended field is merely reported missing.
+        with_typo = VALID_XDR + '\ndescriptoin = "example"\n'
+        report = self.run_validation({"a.toml": with_typo})
+        self.assertTrue(
+            any("unexpected top-level key 'descriptoin'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_key_belonging_to_another_surface_is_rejected(self) -> None:
+        # 'method' is a declared fixture key, but only for surface = "rpc".
+        cross_surface = VALID_XDR + '\nmethod = "get-network"\n'
+        report = self.run_validation({"a.toml": cross_surface})
+        self.assertTrue(
+            any("unexpected top-level key 'method'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_unknown_key_in_assert_table_is_rejected(self) -> None:
+        # Section keys are closed too: a misspelled key inside [[assert]]
+        # fails with the key named (the [expect] table has its own test).
+        bad_rpc = RPC_HEADER + RPC_ASSERT_TABLE + '''
+[[assert]]
+kind = "field-exists"
+requrest = "passphrase"
+'''
+        report = self.run_validation({"a.toml": bad_rpc})
+        self.assertTrue(
+            any(
+                "unexpected key(s) 'requrest' in assert[1]" in e for e in report.errors
+            ),
+            report.errors,
+        )
 
     def test_rpc_fixture_requires_at_least_one_assert(self) -> None:
         bad = """
