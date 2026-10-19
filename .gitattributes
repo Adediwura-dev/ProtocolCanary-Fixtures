@@ -1,0 +1,12 @@
+# Line endings.
+#
+# Python sources are stored with LF endings in the repository and checked out
+# with LF on every platform. tools/validate/validate.py was once committed with
+# CRLF endings by a merge, which made every change to it conflict across the
+# whole file; this rule keeps that from happening again.
+#
+# Only *.py is covered on purpose. Fixture files (*.toml), conformance vectors,
+# evidence captures and archives are never rewritten: their bytes are hashed
+# (pack digests, registry entries, archive checksums), so they get no text
+# normalization from git.
+*.py text eol=lf
