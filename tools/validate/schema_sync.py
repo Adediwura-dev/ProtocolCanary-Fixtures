@@ -165,6 +165,10 @@ def check_sync(schema: dict, validator) -> list[str]:
                     _required_fields(inner_then),
                     errors,
                 )
+            else:
+                errors.append(
+                    f"xdr kind={kind}: schema has no conditional required-field block"
+                )
 
     rpc = surface_block(schema, "rpc")
     if rpc is None:

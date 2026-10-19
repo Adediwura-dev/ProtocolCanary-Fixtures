@@ -134,6 +134,22 @@ class KeywordTests(unittest.TestCase):
         with self.assertRaises(lite.SchemaError):
             lite.validate(1, {"$ref": "#/nope"})
 
+    def test_boolean_and_malformed_schemas_are_handled_explicitly(self) -> None:
+        self.assertEqual(self.errors({"x": 1}, True), [])
+        self.assertEqual(self.errors({"x": 1}, False), ["$: no value is allowed here"])
+        with self.assertRaisesRegex(lite.SchemaError, "unknown JSON type 'decimal'"):
+            self.errors(1, {"type": "decimal"})
+        with self.assertRaisesRegex(lite.SchemaError, "schema must be an object or a boolean"):
+            self.errors(1, None)
+
+    def test_unrecognized_python_values_get_a_stable_type_name(self) -> None:
+        errors = self.errors(object(), {"type": "string"})
+        self.assertEqual(errors, ["$: expected string, got object"])
+
+    def test_true_additional_properties_are_accepted(self) -> None:
+        schema = {"type": "object", "additionalProperties": True}
+        self.assertEqual(self.errors({"extra": {"anything": 1}}, schema), [])
+
 
 class RegistrySchemaTests(unittest.TestCase):
     """The registry schema is checked for real, not mirrored by predicates."""

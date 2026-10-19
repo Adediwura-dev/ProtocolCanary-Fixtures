@@ -16,11 +16,13 @@ import importlib.util
 import io
 import json
 import os
+import runpy
 import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATE_PATH = REPO_ROOT / "tools" / "registry" / "generate.py"
@@ -374,6 +376,14 @@ class InvalidPackTests(PackCase):
             generate.generate(self.base / "missing")
         self.assertIn("is not a directory", str(caught.exception))
 
+    def test_a_special_file_is_rejected_without_reading_it(self) -> None:
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("named pipes are not available on this platform")
+        pack = self.make_pack(GOLDEN_FILES, "special")
+        os.mkfifo(pack / "blocked.pipe")
+        with self.assertRaisesRegex(generate.PackError, "blocked.pipe is not a regular file"):
+            generate.scan_pack(pack)
+
     def test_invalid_toml_names_the_file(self) -> None:
         self.assert_invalid({"d/bad.toml": b"id = [unterminated\n"}, "d/bad.toml", "invalid TOML")
 
@@ -589,6 +599,58 @@ class CommandLineTests(PackCase):
         self.assertIn("d/bad.toml", err)
         self.assertIn("no registry written", err)
         self.assertFalse((pack / "registry-v1.json").exists())
+
+    def test_missing_pack_has_a_specific_cli_error(self) -> None:
+        code, out, err = self.run_main(str(self.base / "missing"))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("is not a directory", err)
+        self.assertIn("FAILED: no registry written", err)
+
+    def test_read_errors_have_a_specific_cli_error(self) -> None:
+        pack = self.make_pack(GOLDEN_FILES)
+        with mock.patch.object(generate, "generate", side_effect=OSError("permission denied")):
+            code, out, err = self.run_main(str(pack))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("could not read the pack: permission denied", err)
+        self.assertIn("FAILED: no registry written", err)
+
+    def test_write_errors_have_a_specific_cli_error(self) -> None:
+        pack = self.make_pack(GOLDEN_FILES)
+        blocker = self.base / "not-a-directory"
+        blocker.write_text("file", encoding="utf-8")
+        code, out, err = self.run_main(str(pack), "--output", str(blocker / "registry.json"))
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("could not write", err)
+
+    def test_stdout_uses_the_text_fallback_without_a_binary_buffer(self) -> None:
+        pack = self.make_pack(GOLDEN_FILES)
+        code, out, err = self.run_main(str(pack), "--stdout")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, GOLDEN_REGISTRY)
+
+    def test_stdout_and_module_entry_point_write_canonical_bytes(self) -> None:
+        pack = self.make_pack(GOLDEN_FILES)
+
+        class BinaryStdout:
+            def __init__(self) -> None:
+                self.buffer = io.BytesIO()
+
+        stdout = BinaryStdout()
+        with mock.patch.object(sys, "argv", [str(GENERATE_PATH), str(pack), "--stdout"]):
+            with mock.patch.object(sys, "stdout", stdout):
+                with self.assertRaises(SystemExit) as caught:
+                    runpy.run_path(str(GENERATE_PATH), run_name="__main__")
+        self.assertEqual(caught.exception.code, 0)
+        self.assertEqual(stdout.buffer.getvalue(), GOLDEN_REGISTRY.encode("utf-8"))
+
+    def test_schema_check_rejects_unsorted_fixture_ids(self) -> None:
+        registry = json.loads(GOLDEN_REGISTRY)
+        registry["fixtures"].reverse()
+        with self.assertRaisesRegex(generate.PackError, "fixtures are not sorted by id"):
+            generate.check_against_schema(registry)
 
     def test_output_and_stdout_are_mutually_exclusive(self) -> None:
         pack = self.make_pack(GOLDEN_FILES)
