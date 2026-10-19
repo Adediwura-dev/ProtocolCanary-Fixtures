@@ -29,12 +29,18 @@ def check_manifest(record: dict) -> None:
     """Mirror of registry-v1.schema.json; raises AssertionError on violation."""
     assert set(record) <= _TOP_FIELDS, f"undeclared: {set(record) - _TOP_FIELDS}"
     assert record["registryVersion"] == 1
-    assert isinstance(record["protocol"], int) and record["protocol"] >= 0
-    assert isinstance(record["fixtures"], list) and record["fixtures"]
+    assert isinstance(record["protocol"], int) and record["protocol"] >= 0, (
+        "protocol must be a non-negative integer"
+    )
+    assert isinstance(record["fixtures"], list) and record["fixtures"], (
+        "fixtures must be a non-empty array"
+    )
     for entry in record["fixtures"]:
         assert set(entry) <= _ENTRY_FIELDS, f"undeclared: {set(entry) - _ENTRY_FIELDS}"
         assert isinstance(entry.get("id"), str) and entry["id"]
-        assert isinstance(entry.get("path"), str) and entry["path"].endswith(".toml")
+        assert isinstance(entry.get("path"), str) and entry["path"].endswith(".toml"), (
+            "fixture path must end in .toml"
+        )
         assert _SHA.match(entry.get("sha256", "")), "sha256 must be 64 lowercase hex"
         assert entry.get("surface") in _SURFACES
         assert isinstance(entry.get("category"), str) and entry["category"]
@@ -109,6 +115,23 @@ class RegistrySchemaTest(unittest.TestCase):
         record["fixtures"][0]["bogus"] = 1
         with self.assertRaises(Exception):
             check_manifest(record)
+
+    def test_invalid_registry_vectors_name_the_failed_rule(self) -> None:
+        cases = (
+            ("negative protocol", lambda record: record.update(protocol=-1), "protocol must"),
+            ("empty fixture list", lambda record: record.update(fixtures=[]), "non-empty array"),
+            (
+                "non-toml fixture path",
+                lambda record: record["fixtures"][0].update(path="xdr/a.bin"),
+                "fixture path must end in .toml",
+            ),
+        )
+        for label, mutate, expected in cases:
+            with self.subTest(label=label):
+                record = copy.deepcopy(MANIFEST)
+                mutate(record)
+                with self.assertRaisesRegex(AssertionError, expected):
+                    check_manifest(record)
 
 
 if __name__ == "__main__":

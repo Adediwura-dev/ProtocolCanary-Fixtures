@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import runpy
 import sys
 import tempfile
 import tomllib
@@ -549,6 +550,10 @@ class ValidatorTests(unittest.TestCase):
     def test_rejects_malformed_toml(self) -> None:
         report = self.run_validation({"a.toml": "not valid [[[ toml"})
         self.assertTrue(any("invalid TOML" in e for e in report.errors))
+
+    def test_toml_error_line_uses_legacy_message_fallback(self) -> None:
+        error = Exception("parse failed (at line 8, column 3)")
+        self.assertEqual(validate._toml_error_line(error), 8)
 
     def test_load_fixture_handles_unreadable_file_oserror(self) -> None:
         report = validate.Report()
@@ -1139,6 +1144,19 @@ field = "error"
         self.assertIn("not a directory", err)
         self.assertIn("FAILED: 1 error(s)", err)
 
+    def test_default_root_falls_back_to_repository_root_when_no_packs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            fake_file = repo / "tools" / "validate" / "validate.py"
+            fake_file.parent.mkdir(parents=True)
+            fake_file.touch()
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(validate, "__file__", str(fake_file)):
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = validate.main([])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("0 fixture file(s) valid across 1 root(s)", out.getvalue())
+
 
 class QuietFlagTests(unittest.TestCase):
     """`--quiet` suppresses warnings while keeping errors and the summary.
@@ -1463,6 +1481,23 @@ class SchemaSyncTests(unittest.TestCase):
         self.assertTrue(any("top-level required fields" in e for e in errors), errors)
         self.assertTrue(any("source_reference" in e for e in errors), errors)
 
+    def test_reports_a_missing_xdr_conditional_block(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        block = schema_sync.surface_block(drift, "xdr")
+        assert block is not None
+        block["if"]["properties"]["kind"]["const"] = "decode-success"
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertIn(
+            "xdr kind=encode-equals: schema has no conditional required-field block",
+            errors,
+        )
+
+    def test_reports_a_malformed_nested_schema_node(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        drift["properties"]["required_capabilities"] = []
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("required_capabilities enum" in error for error in errors))
+
     def test_detects_capability_drift(self) -> None:
         drift = copy.deepcopy(self.schema)
         drift["properties"]["required_capabilities"]["items"]["enum"].append(
@@ -1532,6 +1567,26 @@ class SchemaSyncTests(unittest.TestCase):
             code = schema_sync.main(["--unexpected-flag"])
         self.assertEqual(code, 2)
         self.assertIn("usage:", err.getvalue())
+
+    def test_validator_module_entry_point_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), "a.toml", VALID_XDR)
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, "argv", [str(VALIDATE_PATH), tmp]):
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    with self.assertRaises(SystemExit) as caught:
+                        runpy.run_path(str(VALIDATE_PATH), run_name="__main__")
+        self.assertEqual(caught.exception.code, 0, err.getvalue())
+        self.assertIn("1 fixture file(s) valid", out.getvalue())
+
+    def test_schema_sync_module_entry_point_exits_zero(self) -> None:
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, "argv", [str(SCHEMA_SYNC_PATH)]):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                with self.assertRaises(SystemExit) as caught:
+                    runpy.run_path(str(SCHEMA_SYNC_PATH), run_name="__main__")
+        self.assertEqual(caught.exception.code, 0, err.getvalue())
+        self.assertIn("matches tools/validate/validate.py", out.getvalue())
 
 
 class SourceReferenceFormatTests(unittest.TestCase):
@@ -1622,6 +1677,16 @@ class SourceReferenceFormatTests(unittest.TestCase):
             self.assertIsNotNone(message, value)
             self.assertIn("credentials", message)
 
+    def test_url_parser_also_rejects_credentials_after_syntax_acceptance(self) -> None:
+        class AcceptsReference:
+            @staticmethod
+            def fullmatch(value: str) -> bool:
+                return True
+
+        with mock.patch.object(validate, "_SOURCE_REFERENCE_RE", AcceptsReference()):
+            message = self.problem("https://user@example.com/docs/x")
+        self.assertEqual(message, "must not embed credentials (user@host) in the URL")
+
     def test_rejects_whitespace(self) -> None:
         for value in (
             "https://example.com/a b",
@@ -1664,6 +1729,15 @@ class SourceReferenceFormatTests(unittest.TestCase):
             "https://github.com/stellar/stellar-protocol/blob",
         ):
             self.assertIsNotNone(self.problem(value), value)
+
+    def test_rejects_a_raw_github_link_without_a_ref_or_file(self) -> None:
+        message = self.problem(
+            "https://raw.githubusercontent.com/stellar/stellar-protocol/master"
+        )
+        self.assertEqual(
+            message,
+            "has no ref and file path; link to a file at a commit or tag",
+        )
 
     def test_rejects_an_overlong_reference(self) -> None:
         value = "https://example.com/" + "a" * validate.MAX_SOURCE_REFERENCE_LENGTH
@@ -1827,6 +1901,36 @@ class VerificationEvidenceTests(unittest.TestCase):
         ):
             with self.subTest(bad):
                 self.assertTrue(self.problems(checkedAt=bad))
+        self.assertIn(
+            "checkedAt must be an RFC 3339 UTC instant such as 2026-09-28T12:00:00Z",
+            self.problems(checkedAt="yesterday"),
+        )
+        self.assertIn(
+            "is not a real date and time",
+            self.problems(checkedAt="2026-13-40T12:00:00Z")[0],
+        )
+
+    def test_invalid_evidence_fields_report_specific_diagnostics(self) -> None:
+        problems = self.problems(
+            fixtureId="",
+            verifier="not an object",
+            network="testnet",
+            endpointHost=42,
+            evidenceRef="",
+        )
+        for message in (
+            "fixtureId must be a non-empty string",
+            "verifier must be an object with name and version",
+            "network must be an object or null",
+            "endpointHost must be a host name only",
+            "evidenceRef must be a non-empty string or null",
+        ):
+            self.assertTrue(any(message in problem for problem in problems), problems)
+
+        problems = self.problems(verifier={}, network={"passphrase": "p", "observedProtocol": 28})
+        self.assertIn("verifier.name must be a non-empty string", problems)
+        self.assertIn("verifier.version must be a non-empty string", problems)
+        self.assertIn("network.name must be a non-empty string", problems)
 
     def test_live_record_without_network_fails(self) -> None:
         for method in validate.EVIDENCE_LIVE_METHODS:
@@ -1974,6 +2078,22 @@ class EvidenceCommandLineTests(unittest.TestCase):
         code, _, err = self.run_main("--evidence", str(self.root / "absent"))
         self.assertEqual(code, 1)
         self.assertIn("does not exist", err)
+
+    def test_evidence_read_error_is_reported(self) -> None:
+        unreadable = self.evidence / "directory.json"
+        unreadable.mkdir()
+        report = validate.Report()
+        self.assertIsNone(validate.validate_evidence_file(unreadable, report))
+        self.assertTrue(
+            any("cannot read the evidence file" in error for error in report.errors),
+            report.errors,
+        )
+
+    def test_unloadable_fixtures_are_ignored_when_hashing_evidence(self) -> None:
+        invalid = self.root / "protocol-28" / "broken.toml"
+        invalid.write_text("id = [", encoding="utf-8")
+        hashes = validate.fixture_hashes([self.root / "protocol-28"])
+        self.assertEqual(set(hashes), {self.fixture_id})
 
     def test_without_the_flag_nothing_changes(self) -> None:
         self.write("bad.json", {"verificationVersion": 9})
