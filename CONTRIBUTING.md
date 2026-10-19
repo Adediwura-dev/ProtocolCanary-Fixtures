@@ -244,7 +244,7 @@ Per-surface body (everything else in the file):
 
 | Surface | Fields |
 |---|---|
-| `xdr` | `type` (currently `"StellarValue"` or `"ContractExecutable"`), `kind` (`"decode-success"` \| `"decode-failure"` \| `"roundtrip"` \| `"encode-equals"`), `value_base64`, `expected_base64` (only for `encode-equals`) |
+| `xdr` | `type` (currently `"StellarValue"`, `"ContractExecutable"` or `"ScVal"`), `kind` (`"decode-success"` \| `"decode-failure"` \| `"roundtrip"` \| `"encode-equals"`), `value_base64`, `expected_base64` (only for `encode-equals`) |
 | `rpc` | `method` (`"get-network"` \| `"get-latest-ledger"`), one or more `[[assert]]` tables (`{kind, field, value?, expected_type?}`) |
 | `soroban` | `source_account`, `contract_id`, `function`, `sequence_number`, optional `[[args]]`, `[expect]` (`{kind = "simulation-success"}` or `{kind = "simulation-error", message_contains?}`) |
 

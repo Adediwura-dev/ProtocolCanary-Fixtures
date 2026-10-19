@@ -445,8 +445,34 @@ class ValidatorTests(unittest.TestCase):
                 "LedgerEntry" in e
                 and "StellarValue" in e
                 and "ContractExecutable" in e
+                and "ScVal" in e
                 for e in report.errors
             )
+        )
+
+    def test_accepts_scval_xdr_type(self) -> None:
+        # F-016 (issue #281): canary-xdr supports ScVal, so the validator
+        # must accept it. AAAA...AAAD is the XDR encoding of ScVal u32 0:
+        # discriminant SCV_U32 (3) followed by a zero word.
+        good = VALID_XDR.replace(
+            'type = "StellarValue"', 'type = "ScVal"'
+        ).replace('value_base64 = "AAAAAA=="', 'value_base64 = "AAAAAwAAAAA="')
+        report = self.run_validation({"a.toml": good})
+        self.assertEqual(report.errors, [])
+
+    def test_rejects_invalid_base64_scval_payload(self) -> None:
+        # F-016 (issue #281): a ScVal fixture with a malformed base64
+        # payload must fail validation with a base64 error.
+        bad = VALID_XDR.replace(
+            'type = "StellarValue"', 'type = "ScVal"'
+        ).replace('value_base64 = "AAAAAA=="', 'value_base64 = "!!!not-base64!!!"')
+        report = self.run_validation({"a.toml": bad})
+        self.assertTrue(
+            any(
+                "value_base64" in e and "not valid base64" in e
+                for e in report.errors
+            ),
+            report.errors,
         )
 
     def test_xdr_fixture_rejects_missing_type(self) -> None:

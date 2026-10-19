@@ -58,6 +58,57 @@ representation, once it exists, decodes/encodes correctly.
 
 **Source.** [CAP-0083](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0083.md).
 
+## StellarValue ext: the BASIC and SIGNED arms
+
+Added 2026-10-19. CAP-0083 above covers only the arm CAP-0083 itself
+added. The `StellarValue.ext` union has three arms in `Stellar-ledger.x`
+at [`stellar/stellar-xdr` v28.0](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x)
+— `enum StellarValueType` (lines 14-19) with `STELLAR_VALUE_BASIC = 0`,
+`STELLAR_VALUE_SIGNED = 1` and `STELLAR_VALUE_EMPTY_TX_SET = 2`; the
+`ext` union (lines 41-56) carries no body for BASIC (line 43) and a
+`LedgerCloseValueSignature` (lines 20-24) for SIGNED. The two
+pre-CAP-0083 arms had no fixture, so a decoder that mishandled them
+would pass this pack unnoticed.
+
+**What this pack tests.** For each of the two arms, three fixtures under
+[`protocol-28/xdr/stellar-value/`](../protocol-28/xdr/stellar-value/):
+a roundtrip (decode + re-encode must reproduce the bytes), a
+decode-success (a decoder that cannot decode the arm at all fails
+here), and a decode-failure whose payload is a documented truncation of
+the crate-produced value — for BASIC the first 40 of 48 bytes (the
+`upgrades` vector and ext discriminant missing), for SIGNED the first
+100 of 152 bytes (the 64-byte signature cut after 12 bytes).
+
+**How the payloads were made.** Every `value_base64` is the output of a
+program that builds the typed value with the official `stellar-xdr`
+28.0.1 crate (features `base64` and `alloc` — the version pinned for
+Protocol 28) and calls `to_xdr_base64(Limits::none())`; each fixture's
+header records the one-line construction expression, the crate version,
+the Rust version (`rustc 1.99.1 (58cf8f9c3 2026-10-13)`) and the
+generation date (2026-10-19 UTC). The same crate round-trips both
+values byte-for-byte and returns `Err("failed to fill whole buffer")`
+for both truncations, which the headers also record. All bytes are
+synthetic structural values — a filler hash, an arbitrary close time,
+an empty upgrades vector, a filler node id and a filler 64-byte
+signature that is a signature over nothing; no real or real-looking
+key material is used, and nothing was observed on a network.
+
+**Surface.** XDR only, like the CAP-0083 fixtures above — validator-
+internal consensus values, not something a transaction or RPC call can
+meaningfully reproduce.
+
+**What Canary does not test here.** Anything about which validators
+sign ledger-close values, when, or with what keys — only that the wire
+representation of both arms decodes and encodes correctly.
+
+**Source.** [`Stellar-ledger.x`](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x)
+(`StellarValueType` lines 14-19, `LedgerCloseValueSignature` lines
+20-24, `StellarValue` lines 26-57, `ext` union lines 41-56) and
+[`Stellar-types.x`](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-types.x)
+(`PublicKey` union lines 53-57, `Signature` line 80, `NodeID` line 84)
+at `stellar/stellar-xdr` tag `v28.0`, commit
+`9c9c145953e80990d6ff1ae3a6a973a0ce6d0694`.
+
 ## CAP-0085: externally managed contract executables
 
 **What changed.** [CAP-0085](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md)

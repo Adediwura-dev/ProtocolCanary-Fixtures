@@ -64,8 +64,9 @@ SURFACES = {"xdr", "rpc", "soroban"}
 # limitation, not something to work around here (see CONTRIBUTING.md, "If you
 # need an XDR type this repository does not yet support"): open an issue/PR
 # against canary-xdr first, and only add the type here once that support is
-# released.
-XDR_TYPES = {"StellarValue", "ContractExecutable"}
+# released. ScVal is supported per Protocol-Canary's docs/fixture-contract.md
+# (F-016, issue #281).
+XDR_TYPES = {"StellarValue", "ContractExecutable", "ScVal"}
 # Set of assertion kinds supported by canary-xdr for a given XDR value.
 # Must be kept in sync with canary-xdr's supported assertion kinds.
 XDR_KINDS = {"decode-success", "decode-failure", "roundtrip", "encode-equals"}

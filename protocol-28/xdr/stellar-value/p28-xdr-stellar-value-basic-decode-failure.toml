@@ -1,0 +1,48 @@
+# Protocol 28 / StellarValue ext: truncated STELLAR_VALUE_BASIC is rejected.
+#
+# Complements p28-xdr-stellar-value-basic-roundtrip.toml: a decoder
+# that accepts truncated input is as much of a compatibility break as
+# one that rejects valid input. The STELLAR_VALUE_BASIC arm of the
+# StellarValue ext union carries no body (Stellar-ledger.x at
+# stellar/stellar-xdr tag v28.0, commit
+# 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694, lines 41-56, case at line
+# 43), so its encoding ends immediately after the 4-byte ext
+# discriminant.
+#
+# Malformation rule (documented, deterministic): this value_base64 is
+# the first 40 bytes of the 48-byte crate-produced encoding in
+# p28-xdr-stellar-value-basic-roundtrip.toml — the complete 32-byte
+# txSetHash and the 8-byte closeTime — and nothing else. The
+# `upgrades` vector's length prefix and the ext discriminant are
+# entirely missing, so a correct XDR decoder must reject this as
+# truncated input rather than treating an absent vector or an absent
+# union discriminant as valid.
+#
+# Generated and checked on 2026-10-19 (UTC) with the official
+# `stellar-xdr` 28.0.1 crate
+# (features base64 and alloc, the crate version Protocol-Canary's
+# canary-xdr pins for Protocol 28; rustc 1.99.1 (58cf8f9c3
+# 2026-10-13)): StellarValue::from_xdr_base64 returns Err ("failed to
+# fill whole buffer") for this input, while the unmodified 48-byte
+# encoding it was cut from decodes and round-trips successfully with
+# the same crate. The rejection is the truncation itself; the ext
+# discriminant is absent, not unrecognized.
+#
+# The source value was built by a program using the pinned crate, with
+# the expression recorded in the roundtrip fixture's header; the
+# truncation above is the only mutation. Every byte is a synthetic
+# structural value, not a capture of a real network object. Nothing
+# here was observed on a network.
+#
+# Definition: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x
+
+id = "p28-xdr-stellar-value-basic-decode-failure"
+protocol = 28
+surface = "xdr"
+category = "stellar-value"
+description = "A truncated StellarValue using the STELLAR_VALUE_BASIC ext arm is correctly rejected"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x"
+
+type = "StellarValue"
+kind = "decode-failure"
+value_base64 = "EREREREREREREREREREREREREREREREREREREREREREAAAAAaOd4AA=="

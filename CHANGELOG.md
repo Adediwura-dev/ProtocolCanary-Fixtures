@@ -182,6 +182,31 @@ discussion and diff. New entries must include that link; see
   `protocol-28/` is untouched.
   ([PR #318])
 
+- Six `protocol-28/xdr/stellar-value/` fixtures covering the two
+  previously untested `StellarValue.ext` arms,
+  `STELLAR_VALUE_BASIC` and `STELLAR_VALUE_SIGNED`, so a decoder that
+  handles only the CAP-0083 `STELLAR_VALUE_EMPTY_TX_SET` arm can no
+  longer pass this pack: `p28-xdr-stellar-value-basic-roundtrip`,
+  `p28-xdr-stellar-value-basic-decode-success` and
+  `p28-xdr-stellar-value-basic-decode-failure`, plus
+  `p28-xdr-stellar-value-signed-roundtrip`,
+  `p28-xdr-stellar-value-signed-decode-success` and
+  `p28-xdr-stellar-value-signed-decode-failure`. Every payload was
+  produced by the official `stellar-xdr` 28.0.1 crate (features
+  `base64`, `alloc` — `rustc 1.99.1`, generated 2026-10-19 UTC) via a
+  recorded construction expression, never hand-assembled; the two
+  decode-failure payloads are documented truncations of those
+  crate-produced values that the same crate's `from_xdr_base64`
+  rejects. The signed variant's node-id and signature bytes are
+  labelled synthetic structural values in the headers; no key material
+  that could be real is used, and nothing claims a network
+  observation. Each header cites `Stellar-ledger.x`/`Stellar-types.x`
+  at `stellar/stellar-xdr` v28.0 (commit `9c9c145`) with file and line
+  ranges. Closes
+  [issue #358](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/358).
+  <!-- TODO: switch to the PR link once this PR is opened. -->
+  ([#358])
+
 - `protocol-29/evidence/testnet/`: read-only live Testnet evidence corpus
   (F-034, CF-04-H) — raw JSON-RPC captures of `getNetwork`,
   `getLatestLedger` and `getVersionInfo` taken 2026-10-18 UTC from
@@ -397,3 +422,4 @@ discussion and diff. New entries must include that link; see
 [PR #316]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/316
 [PR #318]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/318
 [PR #319]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/319
+[#358]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/358

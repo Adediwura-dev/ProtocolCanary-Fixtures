@@ -97,7 +97,7 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["StellarValue", "ContractExecutable"],
+            "enum": ["StellarValue", "ContractExecutable", "ScVal"],
             "description": "The XDR type name canary-xdr should decode value_base64 as."
           },
           "kind": {
