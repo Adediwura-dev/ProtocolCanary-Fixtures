@@ -1,0 +1,56 @@
+# Protocol 28 / StellarValue ext: STELLAR_VALUE_BASIC roundtrip.
+#
+# The StellarValue union's `ext` has three arms in Stellar-ledger.x at
+# stellar/stellar-xdr tag v28.0 (commit
+# 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694): enum StellarValueType
+# (lines 14-19) with STELLAR_VALUE_BASIC = 0, STELLAR_VALUE_SIGNED = 1
+# and STELLAR_VALUE_EMPTY_TX_SET = 2; the ext union (lines 41-56)
+# switches on that enum, and the STELLAR_VALUE_BASIC case (line 43)
+# carries no body ("void"). Until this fixture existed, this pack
+# covered only the CAP-0083 STELLAR_VALUE_EMPTY_TX_SET arm, so a
+# decoder that mishandled the pre-CAP-0083 arms would pass the pack
+# unnoticed. This fixture proves the BASIC arm round-trips: decoding
+# the value and re-encoding it must reproduce exactly these bytes.
+#
+# Why it matters: STELLAR_VALUE_BASIC is the ext case every
+# StellarValue carries on a normal ledger close; if it does not
+# round-trip, a consumer cannot faithfully re-encode the value SCP
+# agreed on.
+#
+# The payload was produced by a program that builds the typed value
+# with the official `stellar-xdr` 28.0.1 crate (features base64 and
+# alloc — the crate version Protocol-Canary's canary-xdr pins for
+# Protocol 28) and serialises it, never hand-assembled. Generation
+# expression, recorded verbatim (the crate's ReadXdr/WriteXdr impls
+# provide to_xdr_base64/from_xdr_base64 over Limits::none()):
+#
+#   StellarValue {
+#       tx_set_hash: Hash([0x11; 32]),
+#       close_time: TimePoint(1760000000),
+#       upgrades: VecM::default(),   // empty upgrades vector
+#       ext: StellarValueExt::Basic,
+#   }.to_xdr_base64(Limits::none())
+#
+# Crate: stellar-xdr 28.0.1; rustc 1.99.1 (58cf8f9c3 2026-10-13);
+# generated 2026-10-19 (UTC). The same crate round-tripped the value:
+# StellarValue::from_xdr_base64 followed by to_xdr reproduced the
+# 48-byte encoding exactly, byte for byte.
+#
+# Every payload byte is a synthetic structural value, not a capture of
+# a real network object: the 0x11-filled txSetHash is not the hash of
+# any real transaction set, close_time is an arbitrary fixed uint64
+# (not an observed ledger close time), and the upgrades vector is
+# empty. Nothing here was observed on a network.
+#
+# Definition: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x
+
+id = "p28-xdr-stellar-value-basic-roundtrip"
+protocol = 28
+surface = "xdr"
+category = "stellar-value"
+description = "StellarValue using the STELLAR_VALUE_BASIC ext arm round-trips byte-for-byte"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x"
+
+type = "StellarValue"
+kind = "roundtrip"
+value_base64 = "EREREREREREREREREREREREREREREREREREREREREREAAAAAaOd4AAAAAAAAAAAA"
