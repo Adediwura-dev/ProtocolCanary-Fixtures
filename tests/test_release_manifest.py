@@ -8,9 +8,11 @@ Run with: python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
+import gzip
 import hashlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -45,6 +47,27 @@ KEY_ORDER = [
 
 def schema_problems(document: dict) -> list[str]:
     return _schema_spec.validate(document, SCHEMA)
+
+
+def _ustar_header_claiming(name: str, size: int) -> bytes:
+    """A hand-written ustar header whose size field claims ``size`` bytes.
+
+    The data blocks are never written: ``inspect_archive`` must refuse the
+    archive from the claimed size alone, long before the stream ends.
+    """
+    header = bytearray(512)
+    header[0 : len(name)] = name.encode("utf-8")
+    header[100:108] = b"0000644\0"
+    header[108:116] = b"0000000\0"
+    header[116:124] = b"0000000\0"
+    header[124:136] = ("%011o" % size).encode("ascii") + b"\0"
+    header[136:148] = b"00000000000\0"
+    header[156:157] = b"0"  # REGTYPE
+    header[257:265] = b"ustar\00000"
+    header[148:156] = b"        "
+    checksum = sum(header)
+    header[148:156] = ("%06o\0 " % checksum).encode("ascii")
+    return bytes(header)
 
 
 class ManifestTests(unittest.TestCase):
@@ -198,6 +221,171 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("archive not found", err.getvalue())
         self.assertFalse(list(self.root.glob("nope*.json")))
+
+
+class HostileRegistryArchiveTests(unittest.TestCase):
+    """Archives whose registry.json is present but unusable (F-061 gaps)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def archive_with_registry(self, registry_bytes: bytes) -> Path:
+        entries = [
+            (info, data)
+            for info, data in support.valid_members(self.root / "src")
+            if info.name != manifest.REGISTRY_NAME
+        ]
+        entries.append(support.entry(manifest.REGISTRY_NAME, registry_bytes))
+        return support.tar_gz(entries, self.root / "protocolcanary-fixtures-1.0.0.tar.gz")
+
+    def golden_registry(self) -> dict:
+        for info, data in support.valid_members(self.root / "golden"):
+            if info.name == manifest.REGISTRY_NAME:
+                return json.loads(data.decode("utf-8"))
+        raise AssertionError("golden pack has no registry")
+
+    def build(self, path: Path, **overrides) -> dict:
+        kwargs = {"revision": support.REVISION, "engines": []}
+        kwargs.update(overrides)
+        return manifest.build_manifest(path, **kwargs)
+
+    def test_a_symbolic_link_member_is_refused(self) -> None:
+        path = support.tar_gz(
+            [support.link_entry("xdr/evil.toml", "/etc/passwd", hard=False)],
+            self.root / "protocolcanary-fixtures-1.0.0.tar.gz",
+        )
+        with self.assertRaisesRegex(manifest.ManifestError, "not a regular file"):
+            self.build(path)
+
+    def test_an_archive_claiming_over_the_read_cap_is_refused(self) -> None:
+        header = _ustar_header_claiming("big.bin", manifest._READ_CAP + 1)
+        blob = self.root / "protocolcanary-fixtures-9.9.9.tar.gz"
+        raw = io.BytesIO()
+        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, compresslevel=1) as gz:
+            gz.write(header + b"\0" * 1024)
+        blob.write_bytes(raw.getvalue())
+        with self.assertRaisesRegex(manifest.ManifestError, "far larger"):
+            self.build(blob)
+
+    def test_an_explicit_version_must_be_exact(self) -> None:
+        support.write_pack(self.root)
+        info = pack.build_archive(self.root / "pack", self.root / "out", "1.0.0")
+        for bad in ["1.0", "v1.0.0", "01.0.0", ""]:
+            with self.subTest(bad):
+                with self.assertRaisesRegex(manifest.ManifestError, "MAJOR.MINOR.PATCH"):
+                    self.build(info.path, version=bad)
+        self.assertEqual(self.build(info.path, version="2.3.4")["version"], "2.3.4")
+
+    def test_a_registry_that_is_not_json_is_refused(self) -> None:
+        with self.assertRaisesRegex(manifest.ManifestError, "not valid JSON"):
+            self.build(self.archive_with_registry(b"{not json"))
+
+    def test_a_registry_that_is_not_an_object_is_refused(self) -> None:
+        with self.assertRaisesRegex(manifest.ManifestError, "must be a JSON object"):
+            self.build(self.archive_with_registry(b"[1, 2, 3]"))
+
+    def test_a_registry_without_an_integer_registry_version_is_refused(self) -> None:
+        registry = self.golden_registry()
+        registry["registryVersion"] = "1"
+        with self.assertRaisesRegex(manifest.ManifestError, "integer registryVersion"):
+            self.build(self.archive_with_registry(json.dumps(registry).encode("utf-8")))
+
+    def test_a_registry_without_an_integer_protocol_is_refused(self) -> None:
+        registry = self.golden_registry()
+        registry["protocol"] = True
+        with self.assertRaisesRegex(manifest.ManifestError, "integer protocol"):
+            self.build(self.archive_with_registry(json.dumps(registry).encode("utf-8")))
+
+    def test_a_registry_without_a_valid_pack_digest_is_refused(self) -> None:
+        registry = self.golden_registry()
+        registry["packDigest"] = "sha256:not-a-digest"
+        with self.assertRaisesRegex(manifest.ManifestError, "valid packDigest"):
+            self.build(self.archive_with_registry(json.dumps(registry).encode("utf-8")))
+
+
+class ManifestCliTests(unittest.TestCase):
+    """The CLI's write paths and the module entry point (F-061 gaps)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        support.write_pack(self.root)
+        self.info = pack.build_archive(self.root / "pack", self.root / "out", "1.4.2")
+
+    def test_cli_success_without_a_sha256_file(self) -> None:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = manifest.main([str(self.info.path), "--revision", support.REVISION])
+        self.assertEqual(code, 0)
+        self.assertIn("OK: wrote", out.getvalue())
+        written = self.info.path.with_name("protocolcanary-fixtures-1.4.2.manifest.json")
+        self.assertTrue(written.is_file())
+
+    def test_cli_reports_an_unwritable_output_path(self) -> None:
+        blocker = self.root / "blocker"
+        blocker.write_bytes(b"i am a file, not a directory")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = manifest.main(
+                [
+                    str(self.info.path),
+                    "--revision",
+                    support.REVISION,
+                    "--output",
+                    str(blocker / "nested" / "m.json"),
+                ]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("could not write the manifest", err.getvalue())
+
+    def test_module_entry_point_exits_zero_on_success(self) -> None:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "release" / "manifest.py"),
+                str(self.info.path),
+                "--revision",
+                support.REVISION,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("OK: wrote", run.stdout)
+
+    def test_module_entry_point_exits_one_on_failure(self) -> None:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "release" / "manifest.py"),
+                str(self.root / "absent.tar.gz"),
+                "--revision",
+                support.REVISION,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("FAILED: no manifest written", run.stderr)
+
+    def test_module_main_guard_runs_in_process(self) -> None:
+        import runpy
+
+        argv = sys.argv
+        sys.argv = ["manifest.py", str(self.info.path), "--revision", support.REVISION]
+        self.addCleanup(setattr, sys, "argv", argv)
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                runpy.run_path(
+                    str(REPO_ROOT / "tools" / "release" / "manifest.py"),
+                    run_name="__main__",
+                )
+        self.assertEqual(caught.exception.code, 0)
 
 
 if __name__ == "__main__":
