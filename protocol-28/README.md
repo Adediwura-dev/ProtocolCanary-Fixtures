@@ -1,6 +1,6 @@
 # Protocol 28 compatibility pack
 
-This pack contains **11 fixtures**.
+This pack contains **17 fixtures**.
 
 Implemented in Stellar Core 28.0.0, Stellar RPC 28.0.0 (integration-tested
 against Soroban host 28.0.1), and the official `stellar-xdr` 28.0.0 crate.
@@ -25,6 +25,12 @@ enumeration.
 | [`xdr/cap-0083/p28-xdr-cap83-empty-tx-set-malformed.toml`](xdr/cap-0083/p28-xdr-cap83-empty-tx-set-malformed.toml) | xdr | CAP-0083 | A truncated `StellarValue` using `STELLAR_VALUE_EMPTY_TX_SET` is correctly rejected, not silently accepted. |
 | [`xdr/cap-0085/p28-xdr-cap85-external-ref-roundtrip.toml`](xdr/cap-0085/p28-xdr-cap85-external-ref-roundtrip.toml) | xdr | CAP-0085 | A `ContractExecutable` using `CONTRACT_EXECUTABLE_EXTERNAL_REF` round-trips byte-for-byte. |
 | [`xdr/cap-0085/p28-xdr-cap85-external-ref-malformed.toml`](xdr/cap-0085/p28-xdr-cap85-external-ref-malformed.toml) | xdr | CAP-0085 | A truncated `ContractExecutable::ExternalRef` encoding is correctly rejected, not silently accepted. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-basic-roundtrip.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-roundtrip.toml) | xdr | — | A `StellarValue` using the `STELLAR_VALUE_BASIC` ext arm round-trips byte-for-byte. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-basic-decode-success.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-decode-success.toml) | xdr | — | A well-formed `StellarValue` using the `STELLAR_VALUE_BASIC` ext arm decodes successfully. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-basic-decode-failure.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-decode-failure.toml) | xdr | — | A truncated `STELLAR_VALUE_BASIC` `StellarValue` encoding is correctly rejected, not silently accepted. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-signed-roundtrip.toml`](xdr/stellar-value/p28-xdr-stellar-value-signed-roundtrip.toml) | xdr | — | A `StellarValue` using the `STELLAR_VALUE_SIGNED` ext arm round-trips byte-for-byte. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-signed-decode-success.toml`](xdr/stellar-value/p28-xdr-stellar-value-signed-decode-success.toml) | xdr | — | A well-formed `StellarValue` using the `STELLAR_VALUE_SIGNED` ext arm decodes successfully. |
+| [`xdr/stellar-value/p28-xdr-stellar-value-signed-decode-failure.toml`](xdr/stellar-value/p28-xdr-stellar-value-signed-decode-failure.toml) | xdr | — | A truncated `STELLAR_VALUE_SIGNED` `StellarValue` encoding is correctly rejected, not silently accepted. |
 | [`rpc/p28-rpc-network.toml`](rpc/p28-rpc-network.toml) | rpc | — | A configured RPC endpoint's `getNetwork` reports protocol 28 with a `passphrase` field. |
 | [`rpc/p28-rpc-latest-ledger.toml`](rpc/p28-rpc-latest-ledger.toml) | rpc | — | The same endpoint's `getLatestLedger` reports protocol 28, a numeric `sequence`, a string ledger `id`, and no `getNetwork`-only fields. |
 | [`soroban/p28-soroban-native-asset-name.toml`](soroban/p28-soroban-native-asset-name.toml) | soroban | — | The full construct → `simulateTransaction` → result pipeline works against real Protocol 28 infrastructure. |

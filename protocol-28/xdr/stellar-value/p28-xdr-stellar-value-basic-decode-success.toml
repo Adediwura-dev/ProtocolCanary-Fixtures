@@ -1,0 +1,52 @@
+# Protocol 28 / StellarValue ext: STELLAR_VALUE_BASIC decodes.
+#
+# The StellarValue ext union (Stellar-ledger.x at stellar/stellar-xdr
+# tag v28.0, commit 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694, lines
+# 41-56; StellarValueType enum lines 14-19) has three arms, and the
+# STELLAR_VALUE_BASIC case (line 43) carries no body. The pack already
+# proved that arm round-trips (p28-xdr-stellar-value-basic-roundtrip);
+# this fixture asserts the weaker but distinct property that a decoder
+# simply accepts it — a regression that decodes but re-encodes
+# differently is caught by the roundtrip fixture, while a regression
+# that refuses to decode at all is caught here.
+#
+# Why it matters: decode-success is the floor every other assertion
+# builds on; separating it from roundtrip means a failure names the
+# actual broken behavior instead of only "something is wrong with this
+# value".
+#
+# The payload is the same crate-produced value as the roundtrip
+# fixture, produced by a program using the official `stellar-xdr`
+# 28.0.1 crate (features base64 and alloc — the crate version
+# Protocol-Canary's canary-xdr pins for Protocol 28), never
+# hand-assembled. Generation expression, recorded verbatim:
+#
+#   StellarValue {
+#       tx_set_hash: Hash([0x11; 32]),
+#       close_time: TimePoint(1760000000),
+#       upgrades: VecM::default(),   // empty upgrades vector
+#       ext: StellarValueExt::Basic,
+#   }.to_xdr_base64(Limits::none())
+#
+# Crate: stellar-xdr 28.0.1; rustc 1.99.1 (58cf8f9c3 2026-10-13);
+# generated 2026-10-19 (UTC). The same crate decodes this payload:
+# StellarValue::from_xdr_base64 returns Ok for it.
+#
+# Every payload byte is a synthetic structural value, not a capture of
+# a real network object: the 0x11-filled txSetHash is not the hash of
+# any real transaction set, close_time is an arbitrary fixed uint64
+# (not an observed ledger close time), and the upgrades vector is
+# empty. Nothing here was observed on a network.
+#
+# Definition: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x
+
+id = "p28-xdr-stellar-value-basic-decode-success"
+protocol = 28
+surface = "xdr"
+category = "stellar-value"
+description = "A well-formed StellarValue using the STELLAR_VALUE_BASIC ext arm decodes successfully"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-ledger.x"
+
+type = "StellarValue"
+kind = "decode-success"
+value_base64 = "EREREREREREREREREREREREREREREREREREREREREREAAAAAaOd4AAAAAAAAAAAA"
