@@ -1,6 +1,6 @@
 # Protocol 28 compatibility pack
 
-This pack contains **17 fixtures**.
+This pack contains **23 fixtures**.
 
 Implemented in Stellar Core 28.0.0, Stellar RPC 28.0.0 (integration-tested
 against Soroban host 28.0.1), and the official `stellar-xdr` 28.0.0 crate.
@@ -25,6 +25,12 @@ enumeration.
 | [`xdr/cap-0083/p28-xdr-cap83-empty-tx-set-malformed.toml`](xdr/cap-0083/p28-xdr-cap83-empty-tx-set-malformed.toml) | xdr | CAP-0083 | A truncated `StellarValue` using `STELLAR_VALUE_EMPTY_TX_SET` is correctly rejected, not silently accepted. |
 | [`xdr/cap-0085/p28-xdr-cap85-external-ref-roundtrip.toml`](xdr/cap-0085/p28-xdr-cap85-external-ref-roundtrip.toml) | xdr | CAP-0085 | A `ContractExecutable` using `CONTRACT_EXECUTABLE_EXTERNAL_REF` round-trips byte-for-byte. |
 | [`xdr/cap-0085/p28-xdr-cap85-external-ref-malformed.toml`](xdr/cap-0085/p28-xdr-cap85-external-ref-malformed.toml) | xdr | CAP-0085 | A truncated `ContractExecutable::ExternalRef` encoding is correctly rejected, not silently accepted. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-wasm-roundtrip.toml`](xdr/contract-executable/p28-xdr-contract-executable-wasm-roundtrip.toml) | xdr | — | A `ContractExecutable` using the `CONTRACT_EXECUTABLE_WASM` case round-trips byte-for-byte. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-wasm-decode-success.toml`](xdr/contract-executable/p28-xdr-contract-executable-wasm-decode-success.toml) | xdr | — | A well-formed `ContractExecutable` using the `CONTRACT_EXECUTABLE_WASM` case decodes successfully. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-wasm-decode-failure.toml`](xdr/contract-executable/p28-xdr-contract-executable-wasm-decode-failure.toml) | xdr | — | A truncated `ContractExecutable::Wasm` encoding is correctly rejected, not silently accepted. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-roundtrip.toml`](xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-roundtrip.toml) | xdr | — | A `ContractExecutable` using the `CONTRACT_EXECUTABLE_STELLAR_ASSET` case round-trips byte-for-byte. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-decode-success.toml`](xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-decode-success.toml) | xdr | — | A well-formed `ContractExecutable` using the `CONTRACT_EXECUTABLE_STELLAR_ASSET` case decodes successfully. |
+| [`xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-decode-failure.toml`](xdr/contract-executable/p28-xdr-contract-executable-stellar-asset-decode-failure.toml) | xdr | — | A truncated `ContractExecutable::StellarAsset` encoding is correctly rejected, not silently accepted. |
 | [`xdr/stellar-value/p28-xdr-stellar-value-basic-roundtrip.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-roundtrip.toml) | xdr | — | A `StellarValue` using the `STELLAR_VALUE_BASIC` ext arm round-trips byte-for-byte. |
 | [`xdr/stellar-value/p28-xdr-stellar-value-basic-decode-success.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-decode-success.toml) | xdr | — | A well-formed `StellarValue` using the `STELLAR_VALUE_BASIC` ext arm decodes successfully. |
 | [`xdr/stellar-value/p28-xdr-stellar-value-basic-decode-failure.toml`](xdr/stellar-value/p28-xdr-stellar-value-basic-decode-failure.toml) | xdr | — | A truncated `STELLAR_VALUE_BASIC` `StellarValue` encoding is correctly rejected, not silently accepted. |

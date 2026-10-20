@@ -55,11 +55,21 @@ jobs:
           # on disk, this repository's own inter-file links too. Retries and
           # the 429 allowance keep transient host/rate-limit responses from
           # failing an otherwise healthy tree.
+          #
+          # 502/503/504 is the same allowance for server errors: lychee
+          # 0.24.2 (the version this action installs) retries only 429, not
+          # 5xx at any --max-retries (lycheeverse/lychee#2319), and github.com
+          # intermittently answers 503 to CI runners for commit links that
+          # return 200 from everywhere else. Such a response says GitHub was
+          # unavailable at that moment, not that the link is broken. 404, 500
+          # and every other status still fails the job, and the trade-off is
+          # the one 429 already makes: a host that is genuinely down for the
+          # whole run passes too.
           args: >-
             --verbose
             --no-progress
             --max-retries 2
-            --accept 200,206,429
+            --accept 200,206,429,502,503,504
             --exclude 'https://www\.contributor-covenant\.org/.*'
             './**/*.md'
           fail: true

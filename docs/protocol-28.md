@@ -168,6 +168,66 @@ rather than silently skipped.
 
 **Source.** [CAP-0085](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0085.md).
 
+## ContractExecutable: the Wasm and StellarAsset arms
+
+Added 2026-10-20. The CAP-0085 section above covers only the case
+CAP-0085 added. The `ContractExecutable` union in `Stellar-contract.x`
+at [`stellar/stellar-xdr` v28.0](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x)
+has three cases — `enum ContractExecutableType` (lines 172-177) with
+`CONTRACT_EXECUTABLE_WASM = 0`, `CONTRACT_EXECUTABLE_STELLAR_ASSET = 1`
+and `CONTRACT_EXECUTABLE_EXTERNAL_REF = 2`; the `union ContractExecutable`
+(lines 229-237) carries a `Hash wasm_hash` for WASM and nothing (`void`)
+for STELLAR_ASSET. Both original arms predate Protocol 28: the same
+two-case union is already present in
+[`stellar/stellar-xdr` v20](https://github.com/stellar/stellar-xdr/blob/v20/Stellar-contract.x),
+Protocol 20's XDR (checked 2026-10-20 UTC), the protocol
+[CAP-0046](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0046.md)
+Soroban introduced — CAP-0046's `CREATE_CONTRACT` carries a
+`ContractExecutable`. Neither arm is a Protocol-28 CAP change, and until
+this section's fixtures existed neither had one here, so a decoder that
+mishandled them would pass this pack unnoticed.
+
+**What this pack tests.** For each of the two arms, three fixtures under
+[`protocol-28/xdr/contract-executable/`](../protocol-28/xdr/contract-executable/):
+a roundtrip (decode + re-encode must reproduce the bytes), a
+decode-success (a decoder that cannot decode the arm at all fails
+here), and a decode-failure whose payload is a documented truncation of
+the crate-produced value — for Wasm the first 24 of 36 bytes (the
+32-byte `wasmHash` cut after 20 of its bytes), for StellarAsset the
+first 3 of 4 bytes (the union discriminant incomplete). Neither
+truncation is empty, and each fixture's base64 is literally the prefix
+of the well-formed value it was cut from.
+
+**How the payloads were made.** Every `value_base64` is the output of a
+program that builds the typed value with the official `stellar-xdr`
+28.0.1 crate (features `base64` and `alloc` — the version pinned for
+Protocol 28) and calls `to_xdr_base64(Limits::none())`; each fixture's
+header records the one-line construction expression
+(`ContractExecutable::Wasm(Hash([0xab; 32]))` and
+`ContractExecutable::StellarAsset`), the crate version, the Rust version
+(`rustc 1.99.1 (58cf8f9c3 2026-10-13)`) and the generation date
+(2026-10-20 UTC). The same crate round-trips both values byte-for-byte
+and returns `Err("failed to fill whole buffer")` for both truncations,
+which the headers also record. All bytes are synthetic structural
+values — the 0xab-filled hash is not the hash of any real uploaded Wasm
+and identifies no real contract, account or ledger entry, and the
+StellarAsset value is a bare discriminant carrying no payload — and
+nothing was observed on a network.
+
+**Surface.** XDR only, like the fixtures above — a contract instance's
+executable is ledger state a transaction or RPC call cannot meaningfully
+reproduce; only the wire representation can be checked here.
+
+**What Canary does not test here.** Anything about which Wasm a real
+contract instance points at, or any asset-contract execution end-to-end —
+only that the wire representation of both arms decodes and encodes
+correctly.
+
+**Source.** [`Stellar-contract.x`](https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x)
+(`ContractExecutableType` lines 172-177, `ContractExecutable` union lines
+229-237) at `stellar/stellar-xdr` tag `v28.0`, commit
+`9c9c145953e80990d6ff1ae3a6a973a0ce6d0694`.
+
 ## CAP-0086: sparse-map host functions
 
 **What changed.** [CAP-0086](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0086.md)
