@@ -43,6 +43,45 @@ jobs:
       - name: Repository tests
         run: python3 -m unittest discover tests -v
 
+  coverage:
+    # Branch coverage of tools/ on a single operating system (ubuntu-latest),
+    # so the number is comparable between runs (#337). The threshold lives in
+    # .coveragerc (`fail_under`, measured against the baseline documented
+    # there); this job fails when the report drops below it. Coverage is a
+    # development-only dependency: it is installed here in its pinned version
+    # and never imported by the tools or the test suite.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Same interpreter pin as the validate job; see its comment.
+          python-version: "3.11.16"
+
+      - name: Install pinned coverage
+        run: python3 -m pip install --disable-pip-version-check coverage==7.16.2
+
+      - name: Run tests under coverage
+        # branch=True and source=tools come from .coveragerc, so this matches
+        # the documented local command:
+        #   coverage run --branch --source=tools -m unittest discover tests
+        run: coverage run -m unittest discover tests
+
+      - name: Coverage report (fails below .coveragerc fail_under)
+        # No pipe here: the group's exit status is `coverage report`'s, so a
+        # result below the threshold fails this step. The per-file table is
+        # appended to the job summary either way.
+        run: |
+          {
+            echo "## Branch coverage of tools/"
+            echo
+            echo '```'
+            coverage report -m
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   markdown-links:
     runs-on: ubuntu-latest
     steps:

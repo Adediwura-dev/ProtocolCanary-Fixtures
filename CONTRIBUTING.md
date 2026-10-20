@@ -372,10 +372,42 @@ For convenience, a `Makefile` wraps the commands CI runs:
 - `make badge-check` — fails if that badge is stale.
 - `make test` — the repository test suite.
 - `make check-links` — check fixture source reference links across all packs.
+- `make coverage` — the test suite under branch coverage of `tools/`, failing
+  below `.coveragerc`'s threshold. Needs the development-only dependency
+  `pip install coverage==7.16.2` (CI installs that exact version), so it is
+  the one target not included in `make check`.
 - `make check` — all of them, in CI's order, stopping at the first failure.
 
 The underlying commands work identically if run directly, so `make` is
 not a requirement for contributing — it only saves typing.
+
+## Coverage
+
+CI measures branch coverage of the Python tools on one operating system
+(`ubuntu-latest`, the `coverage` job in `.github/workflows/validate.yml`) so
+the number stays comparable between runs. The configuration lives in
+`.coveragerc`:
+
+- `branch = true`, `source = tools` — branch coverage of everything under
+  `tools/`;
+- `fail_under = 95` — CI fails when the total drops below this. It sits a few
+  points under the **97.53% baseline measured on 2026-10-20** (after the tests
+  added for #335); the comment at the top of `.coveragerc` records the exact
+  measurement command and commit.
+
+The job appends the per-file `coverage report -m` table to the job summary and
+fails below the threshold. To run exactly what CI runs:
+
+```bash
+pip install coverage==7.16.2
+coverage run --branch --source=tools -m unittest discover tests
+coverage report -m   # exits non-zero when below .coveragerc's fail_under
+```
+
+or simply `make coverage`. `coverage` is a development tool only: the test
+suite itself has no third-party dependencies and must keep working without it.
+When the baseline is deliberately raised, update `fail_under` and the baseline
+comment in `.coveragerc` in the same change.
 
 ## Weekly engine-drift check
 

@@ -6,6 +6,9 @@
 #   make badge-check  - fail if that badge is stale (what CI runs)
 #   make test         - repository test suite (unittest discover tests)
 #   make check-links  - check fixture source reference links (tools/validate/check_source_links.py)
+#   make coverage     - test suite under branch coverage of tools/, failing below
+#                       .coveragerc's fail_under (what CI's coverage job runs);
+#                       needs the dev dependency `pip install coverage==7.16.2`
 #   make registry     - write PACK/registry-v1.json (tools/registry/generate.py);
 #                       PACK defaults to protocol-28. Not part of `make check`.
 #   make pack         - build dist/protocolcanary-fixtures-VERSION.tar.gz for PACK
@@ -17,7 +20,7 @@
 
 PACK ?= protocol-28
 
-.PHONY: validate badge badge-check test check-links registry pack check
+.PHONY: validate badge badge-check test check-links coverage registry pack check
 
 validate:
 	python3 tools/validate/validate.py
@@ -33,6 +36,10 @@ badge-check:
 
 test:
 	python3 -m unittest discover tests -v
+
+coverage:
+	coverage run -m unittest discover tests
+	coverage report -m
 
 registry:
 	python3 tools/registry/generate.py $(PACK)
