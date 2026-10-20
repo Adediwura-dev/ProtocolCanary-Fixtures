@@ -1,0 +1,62 @@
+# Protocol 28 / ContractExecutable: truncated CONTRACT_EXECUTABLE_WASM is rejected.
+#
+# What this tests: a truncated ContractExecutable::Wasm encoding is
+# rejected rather than silently accepted:
+#
+#   union ContractExecutable switch (ContractExecutableType type) {
+#   ...
+#   case CONTRACT_EXECUTABLE_WASM:
+#       Hash wasm_hash;
+#   ...
+#   };
+#
+# Definition: Stellar-contract.x at stellar/stellar-xdr tag v28.0, commit
+# 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694: enum ContractExecutableType
+# lines 172-177, union ContractExecutable lines 229-237.
+#
+# Why it matters: a decoder that accepts truncated input is as much of a
+# compatibility break as one that rejects valid input. wasmHash is a
+# fixed-size 32-byte field, so a decoder that stops early, pads the
+# missing bytes or treats a short hash as valid would accept this value
+# and execute against the wrong Wasm.
+#
+# Malformation rule (documented, deterministic): this value_base64 is
+# the first 24 bytes of the 36-byte crate-produced encoding in
+# p28-xdr-contract-executable-wasm-roundtrip.toml -- the complete 4-byte
+# union discriminant (CONTRACT_EXECUTABLE_WASM = 0) and only the first
+# 20 of the required 32 wasmHash bytes. The hash is cut short and there
+# is no trailing data, so a correct XDR decoder must reject it as
+# truncated input. The truncation is a whole number of base64 groups, so
+# the fixture's value_base64 is literally the first 32 characters of the
+# well-formed one.
+#
+# Expected result and where it comes from: kind = "decode-failure" means
+# a decoder must refuse this value. Verified against the official
+# `stellar-xdr` 28.0.1 crate (features base64 and alloc -- the crate
+# version Protocol-Canary's canary-xdr pins for Protocol 28; rustc 1.99.1
+# (58cf8f9c3 2026-10-13)): ContractExecutable::from_xdr_base64 returns
+# Err ("failed to fill whole buffer") for this input, while the unmodified
+# 36-byte encoding it was cut from decodes and round-trips with the same
+# crate. Generated and checked 2026-10-20 (UTC). The rejection is the
+# truncation itself; the discriminant is present and recognized, the body
+# is not complete.
+#
+# The source value was built by a program using the pinned crate, with
+# the expression recorded in the roundtrip fixture's header
+# (ContractExecutable::Wasm(Hash([0xab; 32]))); the truncation above is
+# the only mutation. Every byte is a synthetic structural value, not a
+# capture of a real network object. Nothing here was observed on a
+# network.
+#
+# Definition: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x
+
+id = "p28-xdr-contract-executable-wasm-decode-failure"
+protocol = 28
+surface = "xdr"
+category = "contract-executable"
+description = "A truncated ContractExecutable::Wasm encoding is correctly rejected"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x"
+
+type = "ContractExecutable"
+kind = "decode-failure"
+value_base64 = "AAAAAKurq6urq6urq6urq6ur"

@@ -234,6 +234,51 @@ discussion and diff. New entries must include that link; see
   references required before any Protocol 29 fixture is authored.
   ([PR #319])
 
+- Six `protocol-28/xdr/contract-executable/` fixtures covering the two
+  previously untested `ContractExecutable` union variants,
+  `CONTRACT_EXECUTABLE_WASM` and `CONTRACT_EXECUTABLE_STELLAR_ASSET`,
+  so a decoder that handles only CAP-0085's
+  `CONTRACT_EXECUTABLE_EXTERNAL_REF` case can no longer pass this pack:
+  `p28-xdr-contract-executable-wasm-roundtrip`,
+  `p28-xdr-contract-executable-wasm-decode-success`,
+  `p28-xdr-contract-executable-wasm-decode-failure`,
+  `p28-xdr-contract-executable-stellar-asset-roundtrip`,
+  `p28-xdr-contract-executable-stellar-asset-decode-success` and
+  `p28-xdr-contract-executable-stellar-asset-decode-failure`. Every
+  payload was produced by the official `stellar-xdr` 28.0.1 crate
+  (features `base64`, `alloc` — `rustc 1.99.1`, generated 2026-10-20
+  UTC) via a recorded one-line construction expression, never
+  hand-assembled; the two decode-failure payloads are documented
+  truncations of those crate-produced values (24 of 36 bytes and 3 of 4
+  bytes) that the same crate's `from_xdr_base64` rejects with
+  `failed to fill whole buffer`. The Wasm hash and the bare-discriminant
+  asset value are labelled synthetic structural values in the headers,
+  no fixture claims a network observation, and each header cites
+  `Stellar-contract.x` at `stellar/stellar-xdr` v28.0 (commit
+  `9c9c145`) with file and line ranges. Closes
+  [issue #357](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/357).
+  <!-- TODO: switch to the PR link once this PR is opened. -->
+  ([#357])
+
+- `tools/coverage/report.py`: a standard-library-only fixture-coverage
+  report. It imports `tools/validate/validate.py`'s own capability
+  constants and loader (never duplicates them) and prints, per surface,
+  RPC method, XDR type and XDR kind, RPC assertion kind and Soroban
+  expectation kind, plus a per-`cap-<4-digit>` section, how many fixtures
+  use it — an explicit `0` marked `no fixture` where none does — with
+  fixtures the validator rejects counted separately as `invalid`.
+  `--format json` emits the same data as one sorted JSON document;
+  output is deterministic (sorted keys, no timestamps, no absolute
+  paths), the tool only ever reads, and it exits non-zero with a clear
+  message for a missing pack directory. `tests/test_coverage_report.py`
+  covers synthetic packs built in temporary directories, the real
+  `protocol-28` pack against an independent glob-and-parse, and that a
+  capability constant added to the validator appears in the report
+  automatically. Closes
+  [issue #354](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/354).
+  <!-- TODO: switch to the PR link once this PR is opened. -->
+  ([#354])
+
 
 ### Changed
 
@@ -440,3 +485,5 @@ discussion and diff. New entries must include that link; see
 [PR #318]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/318
 [PR #319]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/319
 [#358]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/358
+[#357]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/357
+[#354]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/354
