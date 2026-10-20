@@ -63,3 +63,18 @@ jobs:
             --exclude 'https://www\.contributor-covenant\.org/.*'
             './**/*.md'
           fail: true
+
+  source-links:
+    # Fixture source reference links are checked on schedule only, so
+    # routine PRs and pushes are not subject to third-party network flakes.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11.16"
+
+      - name: Check fixture source reference links
+        run: python3 tools/validate/check_source_links.py --summary-file "$GITHUB_STEP_SUMMARY"
