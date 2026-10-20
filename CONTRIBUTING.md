@@ -371,7 +371,40 @@ For convenience, a `Makefile` wraps the commands CI runs:
 - `make badge` — regenerates README.md's fixture-count badge.
 - `make badge-check` — fails if that badge is stale.
 - `make test` — the repository test suite.
+- `make check-links` — check fixture source reference links across all packs.
 - `make check` — all of them, in CI's order, stopping at the first failure.
 
 The underlying commands work identically if run directly, so `make` is
 not a requirement for contributing — it only saves typing.
+
+## Checking fixture source reference links
+
+Fixture provenance links (`source_reference` values and `https://` URLs in
+header comments) are checked automatically on a schedule in CI
+(`.github/workflows/validate.yml`) to detect link rot without delaying
+routine pull requests.
+
+Contributors can run this check locally at any time:
+
+```bash
+python3 tools/validate/check_source_links.py
+```
+
+By default, the script scans all `protocol-*` directories. You can also specify
+individual directories or fixture files, and customize timeouts or redirect bounds:
+
+```bash
+# Check a specific protocol pack:
+python3 tools/validate/check_source_links.py protocol-28
+
+# Adjust timeout and redirect bounds:
+python3 tools/validate/check_source_links.py --timeout 15 --max-redirects 10
+
+# Write the markdown report to a file (like $GITHUB_STEP_SUMMARY):
+python3 tools/validate/check_source_links.py --summary-file summary.md
+```
+
+The script prints a markdown table with `URL`, `Fixture File`, and `Result`
+(`OK`, `Failed`, or `Inconclusive`). HTTP 429 rate limits are classified as
+inconclusive and do not trigger a non-zero exit code.
+

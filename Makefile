@@ -5,6 +5,7 @@
 #   make badge        - regenerate README.md's fixture-count badge (tools/badge/badge.py)
 #   make badge-check  - fail if that badge is stale (what CI runs)
 #   make test         - repository test suite (unittest discover tests)
+#   make check-links  - check fixture source reference links (tools/validate/check_source_links.py)
 #   make registry     - write PACK/registry-v1.json (tools/registry/generate.py);
 #                       PACK defaults to protocol-28. Not part of `make check`.
 #   make pack         - build dist/protocolcanary-fixtures-VERSION.tar.gz for PACK
@@ -16,10 +17,13 @@
 
 PACK ?= protocol-28
 
-.PHONY: validate badge badge-check test registry pack check
+.PHONY: validate badge badge-check test check-links registry pack check
 
 validate:
 	python3 tools/validate/validate.py
+
+check-links:
+	python3 tools/validate/check_source_links.py
 
 badge:
 	python3 tools/badge/badge.py
