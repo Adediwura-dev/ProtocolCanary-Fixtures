@@ -377,6 +377,42 @@ For convenience, a `Makefile` wraps the commands CI runs:
 The underlying commands work identically if run directly, so `make` is
 not a requirement for contributing — it only saves typing.
 
+## Weekly engine-drift check
+
+`.github/workflows/engine-drift.yml` builds `StellarCanary/Protocol-Canary`'s
+`main` and runs this repository's `protocol-28` pack against the freshly built
+`stellar-canary`, so an engine-side loading change that starts rejecting or
+reinterpreting the fixtures is caught in the week it merges rather than at
+release time (#331). It runs
+
+- weekly (Mondays 05:17 UTC) via `schedule`, and
+- on demand via `workflow_dispatch`, with an optional `engine_ref` input
+  naming the Protocol-Canary branch or tag to build (default `main`).
+
+It never runs on pull requests or pushes, holds read-only permissions, uses no
+secrets, and is deliberately **not** a required check — a red engine-drift run
+is a signal to investigate, not a merge blocker. The job summary records the
+engine commit that was built and the exact commands that were run; on failure
+it names the requested ref and, when available, the engine commit. Every
+action in the workflow is pinned to a full commit SHA.
+
+To lint the workflow: `actionlint .github/workflows/engine-drift.yml`.
+To reproduce what it runs locally:
+
+```bash
+git clone --depth 1 https://github.com/StellarCanary/Protocol-Canary.git /tmp/protocol-canary
+(cd /tmp/protocol-canary && cargo build --release --locked)
+pack=$PWD/protocol-28
+work=$(mktemp -d) && cd "$work"
+printf 'version = 1\nprotocol = 28\n\n[tests]\nxdr = true\nrpc = false\nsoroban = false\n' > .stellar-canary.toml
+/tmp/protocol-canary/target/release/stellar-canary fixtures --fixtures-dir "$pack" --protocol 28
+/tmp/protocol-canary/target/release/stellar-canary check --fixtures-dir "$pack" --protocol 28 --json --no-cache
+```
+
+The XDR-only `.stellar-canary.toml` mirrors the engine's own
+`scripts/check-canonical-pack.sh`: only the offline surface executes, so the
+run needs no network beyond cloning and building.
+
 ## Checking fixture source reference links
 
 Fixture provenance links (`source_reference` values and `https://` URLs in
