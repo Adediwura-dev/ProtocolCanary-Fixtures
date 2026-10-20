@@ -1,0 +1,73 @@
+# Protocol 28 / ContractExecutable: CONTRACT_EXECUTABLE_WASM roundtrip.
+#
+# What this tests: a ContractExecutable whose discriminant is
+# CONTRACT_EXECUTABLE_WASM (0) and whose body is a 32-byte Wasm hash
+# decodes and re-encodes to exactly these bytes:
+#
+#   union ContractExecutable switch (ContractExecutableType type) {
+#   ...
+#   case CONTRACT_EXECUTABLE_WASM:
+#       Hash wasm_hash;
+#   ...
+#   };
+#
+# The definition is Stellar-contract.x at stellar/stellar-xdr tag v28.0,
+# commit 9c9c145953e80990d6ff1ae3a6a973a0ce6d0694: enum
+# ContractExecutableType lines 172-177 (CONTRACT_EXECUTABLE_WASM = 0),
+# union ContractExecutable lines 229-237.
+#
+# Why it matters: compatibility evidence for a protocol means every
+# variant of a type in scope round-trips. Until this fixture existed the
+# pack exercised only the CAP-0085 CONTRACT_EXECUTABLE_EXTERNAL_REF
+# case, so a decoder that mishandled the original Wasm arm -- the arm a
+# contract instance carrying uploaded Wasm uses -- would pass the pack
+# unnoticed. If this arm does not round-trip, a consumer cannot
+# faithfully re-encode the executable a contract instance points at.
+#
+# What protocol/CAP introduced it: not Protocol 28. The two-case union
+# (CONTRACT_EXECUTABLE_WASM = 0, CONTRACT_EXECUTABLE_STELLAR_ASSET = 1)
+# is already present in stellar/stellar-xdr tag v20, Protocol 20's XDR
+# (https://github.com/stellar/stellar-xdr/blob/v20/Stellar-contract.x,
+# checked 2026-10-20 UTC), the protocol CAP-0046 Soroban introduced
+# (https://github.com/stellar/stellar-protocol/blob/master/core/cap-0046.md
+# shows CREATE_CONTRACT carrying a ContractExecutable). Protocol
+# 28's CAP-0085 added only the third case, CONTRACT_EXECUTABLE_EXTERNAL_REF
+# (discriminant 2).
+#
+# Expected result and where it comes from: kind = "roundtrip" means a
+# decoder must accept this value and re-encoding it must reproduce
+# value_base64 byte for byte. The bytes were produced by a program that
+# builds the typed value with the official `stellar-xdr` Rust crate and
+# serialises it, never hand-assembled. Generation expression, recorded
+# verbatim:
+#
+#   ContractExecutable::Wasm(Hash([0xab; 32])).to_xdr_base64(Limits::none())
+#
+# Crate: stellar-xdr 28.0.1 (features base64 and alloc -- the crate
+# version Protocol-Canary's canary-xdr pins for Protocol 28); rustc
+# 1.99.1 (58cf8f9c3 2026-10-13); generated 2026-10-20 (UTC). The same
+# program asserted the crate's own round trip with this value:
+# ContractExecutable::from_xdr_base64 returned Ok, and re-encoding that
+# decoded value reproduced all 36 bytes exactly.
+#
+# Is it deterministic: yes. The 0xab-filled hash is a fixed placeholder
+# chosen by the generator, which uses no randomness, clock or network;
+# the same expression always yields the same base64.
+#
+# Every payload byte is a synthetic structural value, not a capture of a
+# real network object: the 0xab-filled wasmHash is not the hash of any
+# real uploaded Wasm and does not identify a real contract, account or
+# ledger entry. Nothing here was observed on a network.
+#
+# Definition: https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x
+
+id = "p28-xdr-contract-executable-wasm-roundtrip"
+protocol = 28
+surface = "xdr"
+category = "contract-executable"
+description = "ContractExecutable using the CONTRACT_EXECUTABLE_WASM case round-trips byte-for-byte"
+source_reference = "https://github.com/stellar/stellar-xdr/blob/9c9c145953e80990d6ff1ae3a6a973a0ce6d0694/Stellar-contract.x"
+
+type = "ContractExecutable"
+kind = "roundtrip"
+value_base64 = "AAAAAKurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur"
