@@ -279,6 +279,38 @@ discussion and diff. New entries must include that link; see
   <!-- TODO: switch to the PR link once this PR is opened. -->
   ([#354])
 
+- `.github/workflows/engine-drift.yml`: a weekly (Mondays 05:17 UTC) and
+  manually dispatchable, **non-blocking** workflow that builds
+  `StellarCanary/Protocol-Canary`'s `main` and runs this pack against the
+  freshly built `stellar-canary` — the `fixtures` listing plus an offline
+  `check` with only the XDR surface enabled — so an engine loading change
+  that would start rejecting or reinterpreting the fixtures is caught in
+  the week it merges. It never runs on pull requests, holds read-only
+  permissions, uses no secrets, records the engine commit and the commands
+  run in the job summary, fails clearly on an engine ref that does not
+  exist, and pins every action by commit SHA. See `CONTRIBUTING.md`
+  ("Weekly engine-drift check"). Closes
+  [issue #331](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/331).
+  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
+- Tests closing the remaining branch-coverage gaps in the release manifest,
+  pack and archive tools (`tests/test_release_manifest.py`,
+  `tests/test_verify_archive.py`, `tests/test_pack.py`): hostile archive
+  vectors (symlinks, oversized claimed members, NUL/control-character
+  names), malformed registry documents and fields, unreadable inputs and
+  unwritable outputs, and the CLI entry points' exit codes — every tool
+  file involved now measures 100%, up from 85%/93%/96%. No tool behaviour
+  changed. Closes
+  [issue #335](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/335).
+  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
+- `.coveragerc` plus a `coverage` job in `.github/workflows/validate.yml`:
+  branch coverage of `tools/` on one operating system (ubuntu-latest) under
+  pinned `coverage==7.16.2`, failing below `fail_under = 95` — about 2.5
+  points under the 97.53% baseline measured 2026-10-20 after #335's tests.
+  The per-file table is written to the job summary; `make coverage` and
+  `CONTRIBUTING.md` ("Coverage") document local usage. Closes
+  [issue #337](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/337).
+  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
+
 
 ### Changed
 
