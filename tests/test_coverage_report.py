@@ -135,8 +135,8 @@ def soroban_fixture(
         f'category = "{category}"',
         f'description = "{fid}"',
         'source_reference = "CAP-0083"',
-        'source_account = "GEXAMPLESYNTHETICACCOUNT00000000000000000000000"',
-        'contract_id = "CEXAMPLESYNTHETICCONTRACT000000000000000000000"',
+        'source_account = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"',
+        'contract_id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"',
         'function = "name"',
         "sequence_number = 1",
     ]
@@ -254,6 +254,7 @@ EXPECTED_EXAMPLE_REPORT = {
             "field-exists": 1,
             "field-absent": 1,
             "field-equals": 1,
+            "field-number-range": 0,
             "field-type": 1,
         },
         "RPC_ASSERT_TYPES": {
@@ -325,10 +326,11 @@ CAPABILITIES
   wasm-artifact             0  no fixture
 
 RPC_ASSERT_KINDS
-  field-absent    1
-  field-equals    1
-  field-exists    1
-  field-type      1
+  field-absent          1
+  field-equals          1
+  field-exists          1
+  field-number-range    0  no fixture
+  field-type            1
 
 RPC_ASSERT_TYPES
   array     0  no fixture
