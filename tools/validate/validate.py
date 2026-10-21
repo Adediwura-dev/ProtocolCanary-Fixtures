@@ -53,6 +53,7 @@ import binascii
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import sys
 import tomllib
@@ -90,7 +91,13 @@ XDR_KINDS = {"decode-success", "decode-failure", "roundtrip", "encode-equals"}
 # methods canary-rpc actually implements: a value added here only names a string;
 # the corresponding method must already exist upstream in canary-rpc.
 RPC_METHODS = {"get-network", "get-latest-ledger"}
-RPC_ASSERT_KINDS = {"field-exists", "field-absent", "field-type", "field-equals"}
+RPC_ASSERT_KINDS = {
+    "field-exists",
+    "field-absent",
+    "field-type",
+    "field-equals",
+    "field-number-range",
+}
 # JSON type names accepted for RPC field-type assertions. Keep this set in
 # sync with the `expected_type` enum in schemas/fixture-v1.schema.json.
 RPC_ASSERT_TYPES = {"string", "number", "bool", "object", "array", "null"}
@@ -857,12 +864,16 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
                 path,
                 f"assert[{i}].kind must be one of {sorted(RPC_ASSERT_KINDS)}, got {actual}",
             )
-        unknown_assert_keys = sorted(set(a) - set(RPC_ASSERT_FIELDS))
+        if kind == "field-number-range":
+            allowed_keys = {"kind", "field", "min", "max"}
+        else:
+            allowed_keys = set(RPC_ASSERT_FIELDS)
+        unknown_assert_keys = sorted(set(a) - allowed_keys)
         if unknown_assert_keys:
             report.error(
                 path,
                 f"unexpected key(s) {', '.join(repr(k) for k in unknown_assert_keys)} in "
-                f"assert[{i}]; accepted keys are {sorted(RPC_ASSERT_FIELDS)}",
+                f"assert[{i}]; accepted keys are {sorted(allowed_keys)}",
             )
         field_value = a.get("field")
         if field_value is None or field_value == "":
@@ -887,6 +898,49 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
                     path,
                     f"assert[{i}].expected_type must be one of {sorted(RPC_ASSERT_TYPES)}, "
                     f"got {actual}",
+                )
+        if kind == "field-number-range":
+            has_min = "min" in a
+            has_max = "max" in a
+            if not has_min and not has_max:
+                report.error(
+                    path,
+                    f"assert[{i}] with kind=field-number-range requires 'min' or 'max'",
+                )
+            min_val = None
+            max_val = None
+            if has_min:
+                val = a["min"]
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    report.error(
+                        path,
+                        f"assert[{i}].min must be a number, got {type(val).__name__}",
+                    )
+                elif math.isnan(val) or math.isinf(val):
+                    report.error(
+                        path,
+                        f"assert[{i}].min must be a finite number, got {val}",
+                    )
+                else:
+                    min_val = val
+            if has_max:
+                val = a["max"]
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    report.error(
+                        path,
+                        f"assert[{i}].max must be a number, got {type(val).__name__}",
+                    )
+                elif math.isnan(val) or math.isinf(val):
+                    report.error(
+                        path,
+                        f"assert[{i}].max must be a finite number, got {val}",
+                    )
+                else:
+                    max_val = val
+            if min_val is not None and max_val is not None and min_val > max_val:
+                report.error(
+                    path,
+                    f"assert[{i}] min {min_val} greater than max {max_val}",
                 )
 
 
@@ -1217,21 +1271,113 @@ def _validate_soroban_arg_value(
                 )
 
 
+_BASE32_ALPHABET = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+
+
+def crc16_xmodem(data: bytes) -> int:
+    """CRC16-XModem (polynomial 0x1021, initial value 0)."""
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc
+
+
+def decode_strkey(
+    encoded: str, expected_version: int | None = None
+) -> tuple[bytes | None, str | None]:
+    """Decode a Stellar strkey into its 32-byte payload or return a failure reason.
+
+    Uses only the standard library: base32 (RFC 4648, no padding), 35 decoded bytes,
+    version byte (6 << 3 for G... accounts, 2 << 3 for C... contracts), 32-byte payload,
+    and CRC16-XModem checksum (polynomial 0x1021, init 0, little-endian) of the first
+    33 bytes. Returns (payload, None) on success or (None, reason) on failure.
+    """
+    if len(encoded) != 56:
+        return None, f"wrong length: expected 56 characters, got {len(encoded)}"
+    if any(c.islower() for c in encoded):
+        return None, "strkey must not contain lower-case characters"
+    if not all(c in _BASE32_ALPHABET for c in encoded):
+        return None, "strkey contains non-base32 character(s)"
+    if encoded.startswith("S"):
+        return None, "must not be a secret seed (value not shown)"
+    if encoded.startswith("M"):
+        return None, "wrong prefix: muxed account (M...) not supported"
+    if expected_version == (6 << 3) and encoded.startswith("C"):
+        return None, "wrong prefix: expected G... account strkey, got C... contract"
+    if expected_version == (2 << 3) and encoded.startswith("G"):
+        return None, "wrong prefix: expected C... contract strkey, got G... account"
+    if expected_version == (6 << 3) and not encoded.startswith("G"):
+        return None, f"wrong prefix: expected G... account strkey, got prefix {encoded[0]!r}"
+    if expected_version == (2 << 3) and not encoded.startswith("C"):
+        return None, f"wrong prefix: expected C... contract strkey, got prefix {encoded[0]!r}"
+
+    try:
+        raw = base64.b32decode(encoded)
+    except Exception as e:
+        return None, f"invalid base32 encoding: {e}"
+
+    if len(raw) != 35:
+        return None, f"wrong decoded length: expected 35 bytes, got {len(raw)}"
+
+    if expected_version is not None and raw[0] != expected_version:
+        return None, f"wrong prefix / version byte: expected {expected_version}, got {raw[0]}"
+
+    crc = crc16_xmodem(raw[:33])
+    expected_crc = int.from_bytes(raw[33:35], "little")
+    if crc != expected_crc:
+        return None, f"bad checksum (expected {expected_crc:04x}, got {crc:04x})"
+
+    return raw[1:33], None
+
+
 def validate_soroban_body(fx: Fixture, report: Report) -> None:
     data, path = fx.data, fx.path
 
-    if _require(data, "source_account", str, path, report) and not data["source_account"]:
-        report.error(
-            path, "field 'source_account' must not be empty", line=_field_line(path, "source_account")
-        )
-    if _require(data, "contract_id", str, path, report) and not data["contract_id"]:
-        report.error(
-            path, "field 'contract_id' must not be empty", line=_field_line(path, "contract_id")
-        )
-    if _require(data, "function", str, path, report) and not data["function"]:
-        report.error(
-            path, "field 'function' must not be empty", line=_field_line(path, "function")
-        )
+    if _require(data, "source_account", str, path, report):
+        if not data["source_account"]:
+            report.error(
+                path, "field 'source_account' must not be empty", line=_field_line(path, "source_account")
+            )
+        else:
+            payload, reason = decode_strkey(data["source_account"], expected_version=6 << 3)
+            if reason is not None:
+                report.error(
+                    path,
+                    f"field 'source_account' is not a valid G... strkey: {reason}",
+                    line=_field_line(path, "source_account"),
+                )
+
+    if _require(data, "contract_id", str, path, report):
+        if not data["contract_id"]:
+            report.error(
+                path, "field 'contract_id' must not be empty", line=_field_line(path, "contract_id")
+            )
+        else:
+            payload, reason = decode_strkey(data["contract_id"], expected_version=2 << 3)
+            if reason is not None:
+                report.error(
+                    path,
+                    f"field 'contract_id' is not a valid C... strkey: {reason}",
+                    line=_field_line(path, "contract_id"),
+                )
+
+    if _require(data, "function", str, path, report):
+        if not data["function"]:
+            report.error(
+                path, "field 'function' must not be empty", line=_field_line(path, "function")
+            )
+        elif len(data["function"].encode("utf-8")) > 32:
+            report.error(
+                path,
+                f"field 'function' exceeds 32 bytes ({len(data['function'].encode('utf-8'))} bytes in UTF-8)",
+                line=_field_line(path, "function"),
+            )
+
     _require(data, "sequence_number", int, path, report)
 
     # 'args' is optional but, when present, must match the schema's

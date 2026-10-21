@@ -67,7 +67,7 @@ Checked against `main` at `828b41c` on 2026-10-09:
 ## Vocabulary the validator mirrors from the engine
 
 The validator and schema are structural mirrors, not independent
-specifications; the authoritative lists live in `Protocol-Canary`. Two of
+specifications; the authoritative lists live in `Protocol-Canary`. Three of
 them are closed vocabularies that contributors hit first:
 
 - **XDR `type` names (F-050).** `tools/validate/validate.py` accepts exactly
@@ -83,6 +83,13 @@ them are closed vocabularies that contributors hit first:
   `vec`/`map` containers are limited to `MAX_ARG_DEPTH = 8`, the constant in
   `crates/canary-soroban/src/builder.rs`; `void` is the only kind that may
   omit `value`.
+- **RPC `[[assert]]` assertion kinds (F-080).** `tools/validate/validate.py`
+  and `schemas/fixture-v1.schema.json` accept `field-exists`, `field-absent`,
+  `field-equals`, `field-type` and `field-number-range`, mirroring
+  `crates/canary-rpc/src/runner.rs` (read at Protocol-Canary commit
+  `4418690`) and contract `ca-01-rpc-requests-and-assertions.md`.
+  `field-number-range` accepts `field`, and at least one of `min` and `max`
+  (integers or finite floats, with `min <= max`).
 
 `tools/validate/schema_sync.py` keeps the validator and
 [`schemas/fixture-v1.schema.json`](../schemas/fixture-v1.schema.json) in
