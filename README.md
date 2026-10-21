@@ -186,6 +186,7 @@ table.
 | `rpc` | `[[assert]].kind` | `field-absent` | The response does not contain the named `field`. |
 | `rpc` | `[[assert]].kind` | `field-equals` | The named `field` equals `value` exactly. |
 | `rpc` | `[[assert]].kind` | `field-type` | The named `field` has the JSON type named by `expected_type`. |
+| `rpc` | `[[assert]].kind` | `field-number-range` | The named `field` is a numeric value within `min` and/or `max` (engine commit `4418690`, contract `ca-01-rpc-requests-and-assertions.md`). |
 | `soroban` | `[expect].kind` | `simulation-success` | `simulateTransaction` succeeds with no error. |
 | `soroban` | `[expect].kind` | `simulation-error` | `simulateTransaction` fails — optionally requiring `message_contains` to appear in the error message. |
 

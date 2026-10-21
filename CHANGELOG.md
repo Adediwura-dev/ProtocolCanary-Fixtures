@@ -12,6 +12,18 @@ discussion and diff. New entries must include that link; see
 
 ### Added
 
+- `tools/validate/validate.py` validates Soroban `source_account` and
+  `contract_id` with a standard-library-only strkey decoder (RFC 4648 unpadded base32,
+  CRC16-XModem checksum, G.../C... version byte) and requires `function` to
+  fit at most 32 UTF-8 bytes, matching the engine's transaction builder. Closes
+  [issue #343](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/343).
+- `tools/validate/validate.py` and `schemas/fixture-v1.schema.json` accept
+  the `field-number-range` RPC assertion kind with `min` and/or `max` bounds
+  (integers or finite floats, with `min <= max`), matching `canary-rpc`
+  (read at Protocol-Canary commit `4418690`). `schema_sync.py` verifies the
+  schema and validator remain in sync. Closes
+  [issue #344](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/344).
+
 - `tools/validate/validate.py` and `schemas/fixture-v1.schema.json` accept
   the `TransactionEnvelope` and `LedgerEntry` XDR type names, matching the
   five variants of `canary-xdr`'s `XdrTypeName` (read at Protocol-Canary
