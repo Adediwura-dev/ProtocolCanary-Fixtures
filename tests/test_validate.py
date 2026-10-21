@@ -247,6 +247,165 @@ class ValidatorTests(unittest.TestCase):
             any(nested_path in error for nested_path in nested_paths for error in duplicates)
         )
 
+    def test_unique_fixture_ids_across_multiple_roots(self) -> None:
+        # F-105 (issue #387): duplicate fixture ids across distinct roots must be detected.
+        with tempfile.TemporaryDirectory() as tmp:
+            root1 = Path(tmp) / "root1"
+            root2 = Path(tmp) / "root2"
+            write(root1, "a.toml", VALID_XDR)
+            write(root2, "b.toml", VALID_XDR)
+            code, out, err = run_main([str(root1), str(root2)])
+            self.assertEqual(code, 1)
+            self.assertIn("duplicate fixture id", err)
+            self.assertIn("a.toml", err)
+            self.assertIn("b.toml", err)
+
+            code_json, out_json, err_json = run_main(
+                ["--format", "json", str(root1), str(root2)]
+            )
+            self.assertEqual(code_json, 1)
+            doc_parsed = json.loads(out_json)
+            self.assertIs(doc_parsed["valid"], False)
+            dup_errors = [
+                e for e in doc_parsed["errors"] if "duplicate fixture id" in e["message"]
+            ]
+            self.assertEqual(len(dup_errors), 1)
+            self.assertIn("a.toml", dup_errors[0]["message"])
+
+    def test_same_root_listed_twice_is_not_reported_as_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            write(root, "a.toml", VALID_XDR)
+            code, out, err = run_main([str(root), str(root)])
+            self.assertEqual(code, 0, f"Expected 0, got {code}. stderr: {err}")
+            self.assertNotIn("duplicate fixture id", err)
+
+    def test_distinct_fixture_ids_across_roots_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root1 = Path(tmp) / "root1"
+            root2 = Path(tmp) / "root2"
+            write(root1, "a.toml", VALID_XDR)
+            write(root2, "b.toml", VALID_RPC)
+            code, out, err = run_main([str(root1), str(root2)])
+            self.assertEqual(code, 0, f"Expected 0, got {code}. stderr: {err}")
+            self.assertNotIn("duplicate fixture id", err)
+
+    def test_unhashable_enum_values_report_errors(self) -> None:
+        # F-100 (issue #382): list and table values for enum fields must report
+        # errors naming the field and the offending type rather than crashing with
+        # TypeError: unhashable type.
+        cases = [
+            (VALID_XDR.replace('surface = "xdr"', 'surface = []'), "surface", "list"),
+            (VALID_XDR.replace('surface = "xdr"', 'surface = {}'), "surface", "dict"),
+            (VALID_RPC.replace('kind = "field-equals"', 'kind = []'), "assert[0].kind", "list"),
+            (VALID_RPC.replace('kind = "field-equals"', 'kind = {}'), "assert[0].kind", "dict"),
+            (
+                RPC_HEADER
+                + '[[assert]]\nkind = "field-type"\nfield = "version"\nexpected_type = []\n',
+                "assert[0].expected_type",
+                "list",
+            ),
+            (
+                RPC_HEADER
+                + '[[assert]]\nkind = "field-type"\nfield = "version"\nexpected_type = {}\n',
+                "assert[0].expected_type",
+                "dict",
+            ),
+            (
+                VALID_SOROBAN.replace('kind = "simulation-success"', 'kind = []'),
+                "expect.kind",
+                "list",
+            ),
+            (
+                VALID_SOROBAN.replace('kind = "simulation-success"', 'kind = {}'),
+                "expect.kind",
+                "dict",
+            ),
+        ]
+        for toml_text, field_name, offending_type in cases:
+            with self.subTest(field=field_name, type=offending_type):
+                with tempfile.TemporaryDirectory() as tmp:
+                    write(Path(tmp), "a.toml", toml_text)
+                    code, out, err = run_main([tmp])
+                    self.assertEqual(code, 1)
+                    self.assertNotIn("Traceback", err)
+                    self.assertTrue(
+                        field_name in err and offending_type in err,
+                        f"Expected {field_name} and {offending_type} in stderr: {err}",
+                    )
+                    code_json, out_json, err_json = run_main(
+                        ["--format", "json", tmp]
+                    )
+                    self.assertEqual(code_json, 1)
+                    self.assertNotIn("Traceback", err_json)
+                    doc_parsed = json.loads(out_json)
+                    self.assertIs(doc_parsed["valid"], False)
+                    self.assertTrue(
+                        any(
+                            field_name in e["message"] and offending_type in e["message"]
+                            for e in doc_parsed["errors"]
+                        ),
+                        doc_parsed["errors"],
+                    )
+
+    def test_rejects_boolean_protocol(self) -> None:
+        # F-101 (issue #383): boolean protocol values must be rejected with type bool.
+        for bool_val in ("true", "false"):
+            with self.subTest(val=bool_val):
+                bad = VALID_XDR.replace("protocol = 28", f"protocol = {bool_val}")
+                report = self.run_validation({"a.toml": bad})
+                self.assertFalse(report.ok)
+                self.assertTrue(
+                    any(
+                        "field 'protocol' must be of type int, got bool" in e
+                        for e in report.errors
+                    ),
+                    report.errors,
+                )
+
+    def test_rejects_boolean_sequence_number(self) -> None:
+        # F-101 (issue #383): boolean sequence_number in soroban fixture must be rejected.
+        bad = VALID_SOROBAN.replace("sequence_number = 1", "sequence_number = true")
+        report = self.run_validation({"a.toml": bad})
+        self.assertFalse(report.ok)
+        self.assertTrue(
+            any(
+                "field 'sequence_number' must be of type int, got bool" in e
+                for e in report.errors
+            ),
+            report.errors,
+        )
+
+    def test_rejects_non_canonical_base64_in_value_and_expected(self) -> None:
+        # F-103 (issue #385): non-canonical base64 with non-zero trailing bits must be rejected.
+        bad_val = VALID_XDR.replace('value_base64 = "AAAAAA=="', 'value_base64 = "AAAAAR=="')
+        report = self.run_validation({"a.toml": bad_val})
+        self.assertFalse(report.ok)
+        self.assertTrue(
+            any("field 'value_base64' is not canonical base64" in e for e in report.errors),
+            report.errors,
+        )
+
+        bad_exp = (
+            VALID_XDR.replace('kind = "decode-success"', 'kind = "encode-equals"')
+            + 'expected_base64 = "AAAAAR=="\n'
+        )
+        report_exp = self.run_validation({"a.toml": bad_exp})
+        self.assertFalse(report_exp.ok)
+        self.assertTrue(
+            any(
+                "field 'expected_base64' is not canonical base64" in e
+                for e in report_exp.errors
+            ),
+            report_exp.errors,
+        )
+
+    def test_whitespace_in_base64_is_rejected(self) -> None:
+        bad = VALID_XDR.replace('value_base64 = "AAAAAA=="', 'value_base64 = "AAAA AA=="')
+        report = self.run_validation({"a.toml": bad})
+        self.assertFalse(report.ok)
+        self.assertTrue(any("not valid base64" in e for e in report.errors), report.errors)
+
     def test_rejects_invalid_surface(self) -> None:
         bad = VALID_XDR.replace('surface = "xdr"', 'surface = "wallet"')
         report = self.run_validation({"a.toml": bad})
@@ -1476,8 +1635,8 @@ class QuietFlagTests(unittest.TestCase):
         # a warning, giving --quiet something to suppress.
         real = validate.validate_directory
 
-        def wrapper(root: Path) -> "validate.Report":
-            report = real(root)
+        def wrapper(root: Path, *args, **kwargs) -> "validate.Report":
+            report = real(root, *args, **kwargs)
             report.warning(Path(root) / "injected.toml", "injected warning")
             return report
 
@@ -1634,8 +1793,8 @@ class JsonFormatTests(unittest.TestCase):
         # what to do with warnings, so the JSON document always carries them.
         real = validate.validate_directory
 
-        def wrapper(root: Path) -> "validate.Report":
-            report = real(root)
+        def wrapper(root: Path, *args, **kwargs) -> "validate.Report":
+            report = real(root, *args, **kwargs)
             report.warning(Path(root) / "injected.toml", "injected warning")
             return report
 
