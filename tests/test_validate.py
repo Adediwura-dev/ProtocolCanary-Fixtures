@@ -2121,11 +2121,190 @@ class EvidenceCommandLineTests(unittest.TestCase):
         hashes = validate.fixture_hashes([self.root / "protocol-28"])
         self.assertEqual(set(hashes), {self.fixture_id})
 
+    def test_evidence_file_with_an_invisible_character_fails(self) -> None:
+        data = self.record()
+        data["verifier"] = {"name": "canary\u200b", "version": "1.0.0"}
+        path = self.evidence / "unsafe.json"
+        # ensure_ascii=False writes the actual invisible character to disk, so
+        # the validator has to scan the decoded text rather than JSON escapes.
+        path.write_text(
+            __import__("json").dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+        code, _, err = self.run_main("--evidence", str(path))
+        self.assertEqual(code, 1)
+        self.assertIn("unsafe.json", err)
+        self.assertIn("line 1", err)
+        self.assertIn("U+200B", err)
+
     def test_without_the_flag_nothing_changes(self) -> None:
         self.write("bad.json", {"verificationVersion": 9})
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertNotIn("evidence", out)
+
+
+class FileTextSafetyTests(unittest.TestCase):
+    """F-048: reject invisible and control characters in fixture text."""
+
+    def run_validation(self, contents: str | bytes, name: str = "a.toml"):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(contents, bytes):
+                path.write_bytes(contents)
+            else:
+                path.write_text(contents, encoding="utf-8")
+            return validate.validate_directory(root)
+
+    def test_find_unsafe_characters_reports_every_offender_with_location(self) -> None:
+        text = "a\u202eb\u200bc\x00d\u0085e\ufefff"
+        found = validate.find_unsafe_characters(text)
+        self.assertEqual(
+            [(item.codepoint, item.line, item.column) for item in found],
+            [
+                (0x202E, 1, 2),
+                (0x200B, 1, 4),
+                (0x0000, 1, 6),
+                (0x0085, 1, 8),
+                (0xFEFF, 1, 10),
+            ],
+        )
+
+    def test_allowed_whitespace_and_leading_bom_are_not_reported(self) -> None:
+        self.assertEqual(
+            validate.find_unsafe_characters("\ufeffid = 1\n\t\r\n"), []
+        )
+
+    def test_every_bidirectional_control_is_reported(self) -> None:
+        codepoints = list(range(0x202A, 0x202F)) + list(range(0x2066, 0x206A))
+        for codepoint in codepoints:
+            with self.subTest(codepoint=hex(codepoint)):
+                found = validate.find_unsafe_characters(f"x{chr(codepoint)}y")
+                self.assertEqual([item.codepoint for item in found], [codepoint])
+
+    def test_zero_width_and_format_characters_are_reported(self) -> None:
+        for character in ("\u200b", "\u200c", "\u200d", "\u2060", "\u00ad", "\u061c"):
+            with self.subTest(codepoint=hex(ord(character))):
+                found = validate.find_unsafe_characters(f"a{character}b")
+                self.assertEqual([item.codepoint for item in found], [ord(character)])
+
+    def test_control_characters_are_rejected_except_allowed_whitespace(self) -> None:
+        for codepoint in (0x00, 0x07, 0x1F, 0x7F, 0x80, 0x85, 0x9F):
+            with self.subTest(codepoint=hex(codepoint)):
+                found = validate.find_unsafe_characters(f"a{chr(codepoint)}b")
+                self.assertEqual([item.codepoint for item in found], [codepoint])
+        self.assertEqual(validate.find_unsafe_characters("\t\n\r"), [])
+
+    def test_bom_is_only_allowed_as_the_first_character(self) -> None:
+        self.assertEqual(validate.find_unsafe_characters("\ufeffid = 1\n"), [])
+        found = validate.find_unsafe_characters(" \ufeff")
+        self.assertEqual([(item.codepoint, item.line, item.column) for item in found], [(0xFEFF, 1, 2)])
+
+    def test_fixture_with_each_forbidden_class_names_file_line_column_and_codepoint(self) -> None:
+        cases = {
+            "\u202e": "U+202E",
+            "\u2066": "U+2066",
+            "\u200b": "U+200B",
+            "\x00": "U+0000",
+        }
+        for character, codepoint in cases.items():
+            with self.subTest(codepoint=codepoint):
+                fixture = VALID_XDR.replace(
+                    'description = "example"', f'description = "ex{character}ample"'
+                )
+                report = self.run_validation(fixture)
+                self.assertFalse(report.ok)
+                matching = [error for error in report.errors if codepoint in error]
+                self.assertTrue(matching, report.errors)
+                message = matching[0]
+                self.assertIn("a.toml", message)
+                self.assertIn("line 6", message)
+                self.assertIn("column 18", message)
+
+    def test_forbidden_character_in_a_comment_fails(self) -> None:
+        fixture = VALID_XDR.replace(
+            'description = "example"', '# note \u200b\ndescription = "example"'
+        )
+        report = self.run_validation(fixture)
+        self.assertTrue(any("U+200B" in error for error in report.errors), report.errors)
+        self.assertTrue(any("line 6" in error for error in report.errors), report.errors)
+
+    def test_bom_in_the_middle_of_a_value_fails(self) -> None:
+        fixture = VALID_XDR.replace(
+            'description = "example"', 'description = "ex\ufeffample"'
+        )
+        report = self.run_validation(fixture)
+        self.assertTrue(any("U+FEFF" in error for error in report.errors), report.errors)
+
+    def test_accented_and_non_latin_text_is_still_valid(self) -> None:
+        fixture = "# café 日本語 — naïve\n" + VALID_XDR.replace(
+            'description = "example"', 'description = "café 日本語 naïve"'
+        )
+        report = self.run_validation(fixture)
+        self.assertEqual(report.errors, [])
+
+    def test_invalid_utf8_still_reports_a_read_error(self) -> None:
+        report = self.run_validation(b'id = "\xff\xfe"\n')
+        self.assertTrue(any("UTF-8" in error for error in report.errors), report.errors)
+
+
+class PortableFixtureNameTests(unittest.TestCase):
+    """F-049: reject path names Windows cannot create."""
+
+    def run_validation(self, name: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root, name, VALID_XDR)
+            return validate.validate_directory(root)
+
+    def test_windows_reserved_device_names_are_rejected(self) -> None:
+        for name in (
+            "con.toml",
+            "NUL",
+            "Aux.toml",
+            "com1.toml",
+            "lpt9.toml",
+            "aux.v2.toml",
+            "xdr/con/a.toml",
+            "NUL/a.toml",
+        ):
+            with self.subTest(name=name):
+                report = self.run_validation(name)
+                joined = "\n".join(report.errors)
+                self.assertIn("non-portable file name", joined)
+                self.assertIn("device name", joined)
+
+    def test_trailing_dot_or_space_and_forbidden_characters_are_rejected(self) -> None:
+        for name in (
+            "bad./a.toml",
+            "bad /a.toml",
+            "xdr/a:b.toml",
+            "xdr/a?.toml",
+            "xdr/a*.toml",
+            "xdr/a<b.toml",
+            "xdr/a>b.toml",
+            'xdr/a"b.toml',
+            "xdr/a|b.toml",
+            "xdr/payload?.bin",
+        ):
+            with self.subTest(name=name):
+                report = self.run_validation(name)
+                self.assertTrue(
+                    any("non-portable file name" in error for error in report.errors),
+                    report.errors,
+                )
+
+    def test_portable_names_and_unicode_lookalikes_are_accepted(self) -> None:
+        for name in (
+            "console.toml",
+            "p28-xdr-con.toml",
+            "lpt10.toml",
+            "\u0421ON.toml",  # Cyrillic ES, not an ASCII C
+        ):
+            with self.subTest(name=name):
+                report = self.run_validation(name)
+                self.assertEqual(report.errors, [])
 
 
 _MISSING = object()

@@ -300,6 +300,35 @@ once that support exists and is released.
   file would be mis-parsed as a malformed fixture and fail validation (see
   [README.md](README.md#repository-relationship)).
 
+## Portable paths and safe text
+
+Every fixture pack is checked out and extracted on Windows as well as on Linux
+and macOS, and fixture files are reviewed as text but consumed as data. Two
+rules therefore apply to every change:
+
+- **Use portable path names.** A pack-relative path segment cannot be a
+  Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+  `LPT1`-`LPT9`) in any letter case or with any extension, cannot end in a dot
+  or a space, and cannot contain `<`, `>`, `:`, `"`, `|`, `?` or `*`. Names
+  such as `console.toml`, `p28-xdr-con.toml` and `lpt10.toml` are fine;
+  `con.toml`, `aux.v2.toml` and `bad./fixture.toml` are not. The shared rule
+  is in `tools/validate/portable_names.py` and is enforced by the validator,
+  the registry generator and the archive verifier, so a pack cannot pass one
+  tool and fail another. Unicode look-alikes of a reserved name (for example
+  a Cyrillic `С` in `СON.toml`) are different names and are allowed.
+- **Use safe text.** Fixture `.toml` files and verification evidence `.json`
+  files passed with `--evidence` must be valid UTF-8 and must not contain
+  bidirectional override or isolate characters (`U+202A`-`U+202E` and
+  `U+2066`-`U+2069`), zero-width or other invisible format characters, a byte
+  order mark outside the first character of the file, or control characters
+  other than tab, line feed and carriage return. Accented and non-Latin text
+  is welcome and remains valid. The validator reports the file, line, column
+  and code point (for example `U+202E`) and never rewrites the file.
+
+Both rules are repository contracts, not style advice: a fixture that breaks
+one fails `make validate` (and therefore CI), and the archive and registry
+tools reject the pack before it can be released.
+
 ## Deprecating a fixture
 
 Do not silently delete a fixture that is still referenced by a released

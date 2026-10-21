@@ -38,6 +38,12 @@ newline, keys in the documented order.
 
 A missing ``source_reference`` is an error, not a warning: every fixture
 must cite an authoritative upstream source (see CONTRIBUTING.md).
+
+Two safety rules run before structural validation (F-048/F-049): fixture
+text (and evidence JSON read through ``--evidence``) must not contain
+bidirectional, invisible or disallowed control characters, and every
+pack-relative path segment must be a name Windows can create. Both report
+and never rewrite; see CONTRIBUTING.md, "Portable paths and safe text".
 """
 from __future__ import annotations
 
@@ -45,10 +51,12 @@ import argparse
 import base64
 import binascii
 import hashlib
+import importlib.util
 import json
 import re
 import sys
 import tomllib
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -103,6 +111,38 @@ CAPABILITIES = {
     "raw-ledger-access",
 }
 VAGUE_CATEGORIES = {"misc", "other", "test", "general"}
+
+# F-049: the Windows-portable-name rule lives in one helper shared with the
+# registry generator and the archive verifier, so the three tools cannot
+# drift. Loaded by path because these tools are run as scripts and are not a
+# Python package.
+def _load_portable_names():
+    name = "canary_portable_names"
+    existing = sys.modules.get(name)
+    if existing is not None:
+        return existing
+    path = Path(__file__).resolve().parent / "portable_names.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+portable_names = _load_portable_names()
+
+# F-048: characters that change how fixture text looks in review or hide
+# entirely. Cf covers zero-width and other format characters (including a BOM
+# and the bidirectional controls below); Cc covers C0 and C1 controls. Tab,
+# line feed and carriage return are the only allowed controls, and a single
+# BOM is allowed only as the first character of a file.
+ALLOWED_CONTROL_CHARACTERS = ("\t", "\n", "\r")
+BIDI_CONTROL_CHARACTERS = tuple(
+    chr(codepoint)
+    for codepoint in tuple(range(0x202A, 0x202F)) + tuple(range(0x2066, 0x206A))
+)
+BYTE_ORDER_MARK = "\ufeff"
 
 # What `source_reference` may be (F-025). Two forms are accepted:
 #
@@ -296,6 +336,75 @@ class Report:
         return not self.error_entries
 
 
+@dataclass(frozen=True)
+class UnsafeCharacter:
+    """One forbidden code point and its 1-based source location (F-048)."""
+
+    codepoint: int
+    line: int
+    column: int
+
+
+def _unsafe_character_problem(character: str) -> str | None:
+    """Why ``character`` is forbidden in fixture/evidence text, or ``None``."""
+    if character in BIDI_CONTROL_CHARACTERS:
+        return (
+            "is a bidirectional control character, which can make the file "
+            "display differently from its bytes"
+        )
+    if character == BYTE_ORDER_MARK:
+        return "is a byte order mark (BOM) that is not at the start of the file"
+    category = unicodedata.category(character)
+    if category == "Cf":
+        return "is an invisible format character"
+    if category == "Cc" and character not in ALLOWED_CONTROL_CHARACTERS:
+        return "is a control character other than tab, line feed or carriage return"
+    return None
+
+
+def find_unsafe_characters(text: str) -> list[UnsafeCharacter]:
+    """Every forbidden code point in ``text`` with its 1-based line and column.
+
+    The scan is deliberately over decoded text, not TOML fields, so the same
+    rule covers comments, keys, string values and evidence JSON. A BOM is
+    allowed only at offset zero; every other occurrence is reported. The
+    function reports and never rewrites: the caller decides what to do.
+    """
+    findings: list[UnsafeCharacter] = []
+    line = 1
+    column = 1
+    for index, character in enumerate(text):
+        if character == "\n":
+            line += 1
+            column = 1
+            continue
+        if index == 0 and character == BYTE_ORDER_MARK:
+            column += 1
+            continue
+        if _unsafe_character_problem(character) is not None:
+            findings.append(
+                UnsafeCharacter(codepoint=ord(character), line=line, column=column)
+            )
+        column += 1
+    return findings
+
+
+def report_unsafe_characters(path: Path, text: str, report: "Report") -> None:
+    """Report every forbidden code point in ``text`` (F-048)."""
+    for finding in find_unsafe_characters(text):
+        character = chr(finding.codepoint)
+        problem = _unsafe_character_problem(character)
+        name = unicodedata.name(character, "unnamed character")
+        report.error(
+            path,
+            f"line {finding.line}, column {finding.column}: forbidden code point "
+            f"U+{finding.codepoint:04X} ({name}) {problem}; fixture and evidence "
+            "text must not contain bidirectional, invisible or disallowed control "
+            "characters",
+            line=finding.line,
+        )
+
+
 def _is_pinned_ref(ref: str) -> bool:
     return bool(_COMMIT_REF_RE.fullmatch(ref) or _TAG_REF_RE.fullmatch(ref))
 
@@ -416,9 +525,13 @@ def _field_line(path: Path, key: str) -> int | None:
 def load_fixture(path: Path, report: Report) -> Fixture | None:
     try:
         raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        report.error(path, f"not valid UTF-8: {exc}")
+        return None
     except OSError as exc:
         report.error(path, f"failed to read file: {exc}")
         return None
+    report_unsafe_characters(path, raw, report)
     try:
         data = tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
@@ -815,9 +928,29 @@ def validate_unique_ids(fixtures: list[Fixture], report: Report) -> None:
             seen[fid] = fx.path
 
 
+def check_portable_paths(root: Path, report: Report) -> None:
+    """Report every path under ``root`` that Windows cannot create (F-049).
+
+    Every entry is checked, not only the ``*.toml`` fixtures: a payload named
+    ``con.bin`` or a directory named ``bad.`` breaks extraction on Windows just
+    as a fixture name does, so the validator must not let it through merely
+    because ``find_fixture_files`` would never load it.
+    """
+    for path in sorted(root.rglob("*")):
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError:  # pragma: no cover - rglob only yields descendants
+            continue
+        try:
+            portable_names.check_path(relative)
+        except portable_names.PortableNameError as error:
+            report.error(path, f"non-portable file name: {error}")
+
+
 def validate_directory(root: Path) -> Report:
     report = Report()
     fixtures: list[Fixture] = []
+    check_portable_paths(root, report)
     for path in find_fixture_files(root):
         fx = load_fixture(path, report)
         if fx is not None:
@@ -1000,6 +1133,7 @@ def validate_evidence_file(path: Path, report: Report) -> dict | None:
     except (OSError, UnicodeDecodeError) as error:
         report.error(path, f"cannot read the evidence file: {error}")
         return None
+    report_unsafe_characters(path, text, report)
     try:
         record = json.loads(text)
     except json.JSONDecodeError as error:

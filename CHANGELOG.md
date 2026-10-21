@@ -279,37 +279,28 @@ discussion and diff. New entries must include that link; see
   <!-- TODO: switch to the PR link once this PR is opened. -->
   ([#354])
 
-- `.github/workflows/engine-drift.yml`: a weekly (Mondays 05:17 UTC) and
-  manually dispatchable, **non-blocking** workflow that builds
-  `StellarCanary/Protocol-Canary`'s `main` and runs this pack against the
-  freshly built `stellar-canary` — the `fixtures` listing plus an offline
-  `check` with only the XDR surface enabled — so an engine loading change
-  that would start rejecting or reinterpreting the fixtures is caught in
-  the week it merges. It never runs on pull requests, holds read-only
-  permissions, uses no secrets, records the engine commit and the commands
-  run in the job summary, fails clearly on an engine ref that does not
-  exist, and pins every action by commit SHA. See `CONTRIBUTING.md`
-  ("Weekly engine-drift check"). Closes
-  [issue #331](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/331).
-  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
-- Tests closing the remaining branch-coverage gaps in the release manifest,
-  pack and archive tools (`tests/test_release_manifest.py`,
-  `tests/test_verify_archive.py`, `tests/test_pack.py`): hostile archive
-  vectors (symlinks, oversized claimed members, NUL/control-character
-  names), malformed registry documents and fields, unreadable inputs and
-  unwritable outputs, and the CLI entry points' exit codes — every tool
-  file involved now measures 100%, up from 85%/93%/96%. No tool behaviour
-  changed. Closes
-  [issue #335](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/335).
-  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
-- `.coveragerc` plus a `coverage` job in `.github/workflows/validate.yml`:
-  branch coverage of `tools/` on one operating system (ubuntu-latest) under
-  pinned `coverage==7.16.2`, failing below `fail_under = 95` — about 2.5
-  points under the 97.53% baseline measured 2026-10-20 after #335's tests.
-  The per-file table is written to the job summary; `make coverage` and
-  `CONTRIBUTING.md` ("Coverage") document local usage. Closes
-  [issue #337](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/337).
-  ([PR #379](https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/379))
+- `tools/validate/portable_names.py`: one shared Windows-portable path rule
+  for fixture packs, called by `tools/validate/validate.py`,
+  `tools/registry/generate.py` and `tools/pack/verify_archive.py` so the three
+  tools cannot disagree. It rejects reserved device names (`CON`, `PRN`,
+  `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`) in any letter case and with any
+  extension, segments ending in a dot or a space, and the characters
+  `<`, `>`, `:`, `"`, `|`, `?` and `*`. A pack containing `con.toml`,
+  `aux.v2.toml`, `NUL` or `bad./fixture.toml` now fails at validation,
+  registry-generation and archive-verification time instead of failing later
+  on a Windows checkout. Closes
+  [issue #323](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/323).
+  ([PR #380])
+- Fixture-text scanning in `tools/validate/validate.py`: fixture TOML files,
+  and verification evidence JSON files read through `--evidence`, now reject
+  bidirectional override and isolate characters, zero-width and other `Cf`
+  format characters, a byte order mark outside the first character, and `Cc`
+  control characters other than tab, line feed and carriage return. The
+  diagnostic names the file, 1-based line, 1-based column and code point in
+  `U+XXXX` form; the validator reports and never rewrites the file. Tab, LF,
+  CR, accented letters and CJK text remain valid. Closes
+  [issue #322](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/322).
+  ([PR #380])
 
 
 ### Changed
@@ -519,3 +510,4 @@ discussion and diff. New entries must include that link; see
 [#358]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/358
 [#357]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/357
 [#354]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/354
+[PR #380]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/380
