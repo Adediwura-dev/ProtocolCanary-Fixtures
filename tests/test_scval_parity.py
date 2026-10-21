@@ -1,4 +1,4 @@
-"""ScVal serialization parity tests (issue #304, F-047).
+"""ScVal serialization parity tests (issue #304, F-047, F-096).
 
 Asserts that the golden vectors in ``tests/vectors/scval_parity/`` and the
 standard-library codec in ``tests/scval_xdr.py`` agree with the ScVal wire
@@ -12,12 +12,11 @@ field by field from ``Stellar-contract.x`` (see the JSON file's
 derivations rather than checking a codec against its own output.
 
 Coverage is the set issue #304 asks for -- integers, bytes, addresses,
-vectors and maps -- plus the remaining primitive ScVal variants. The five
-ScVal variants this repository has no use for (``SCV_ERROR``,
-``SCV_CONTRACT_INSTANCE``, ``SCV_LEDGER_KEY_CONTRACT_INSTANCE``,
-``SCV_LEDGER_KEY_NONCE``, ``SCV_EXECUTABLE_TAG``) are deliberately not
-implemented, and ``test_unsupported_discriminants_are_rejected`` pins that
-they are rejected rather than silently mis-decoded.
+vectors and maps -- plus the remaining primitive ScVal variants. All 19
+ScVal discriminants defined in v28.0 are now implemented. The five variants
+added in F-096 (``SCV_ERROR``, ``SCV_CONTRACT_INSTANCE``,
+``SCV_LEDGER_KEY_CONTRACT_INSTANCE``, ``SCV_LEDGER_KEY_NONCE``,
+``SCV_EXECUTABLE_TAG``) have their own parity vectors.
 
 Offline and deterministic: no network, no subprocess, no live ledger state.
 """
@@ -48,13 +47,9 @@ XdrDecodeError = scval_xdr.XdrDecodeError
 XdrEncodeError = scval_xdr.XdrEncodeError
 
 # ScValType discriminants this repository intentionally leaves unimplemented.
-UNIMPLEMENTED_DISCRIMINANTS = {
-    2: "SCV_ERROR",
-    19: "SCV_CONTRACT_INSTANCE",
-    20: "SCV_LEDGER_KEY_CONTRACT_INSTANCE",
-    21: "SCV_LEDGER_KEY_NONCE",
-    22: "SCV_EXECUTABLE_TAG",
-}
+# All v28.0 discriminants are now implemented; this is kept empty for
+# forward-compatibility if a future protocol version adds new ones.
+UNIMPLEMENTED_DISCRIMINANTS: dict[int, str] = {}
 
 # The type families issue #304's acceptance criteria require coverage of,
 # mapped to the ScVal kinds that satisfy each.
@@ -64,6 +59,10 @@ REQUIRED_FAMILIES = {
     "addresses": {"address"},
     "vectors": {"vec"},
     "maps": {"map"},
+    "errors": {"error"},
+    "contract-instances": {"contract-instance"},
+    "ledger-keys": {"ledger-key-contract-instance", "ledger-key-nonce"},
+    "executable-tags": {"executable-tag"},
 }
 
 
@@ -267,18 +266,19 @@ class ScValNegativeTests(unittest.TestCase):
                         )
 
     def test_unsupported_discriminants_are_rejected(self) -> None:
-        for code, name in UNIMPLEMENTED_DISCRIMINANTS.items():
-            with self.subTest(discriminant=name):
-                payload = code.to_bytes(4, "big") + b"\x00" * 64
-                with self.assertRaises(XdrDecodeError):
-                    scval_xdr.decode(payload)
-
-    def test_out_of_range_discriminant_is_rejected(self) -> None:
+        # All v28.0 discriminants (0-22) are now implemented. Discriminants
+        # beyond 22 should still be rejected.
         for code in (23, 99, 0xFFFFFFFF):
             with self.subTest(discriminant=code):
                 payload = code.to_bytes(4, "big") + b"\x00" * 64
                 with self.assertRaises(XdrDecodeError):
                     scval_xdr.decode(payload)
+
+    def test_out_of_range_discriminant_is_rejected(self) -> None:
+        # This test is now covered by test_unsupported_discriminants_are_rejected
+        # since there are no intentionally unimplemented discriminants in v28.0.
+        # Kept for clarity: any discriminant outside the defined range is rejected.
+        pass
 
     def test_non_zero_padding_is_rejected(self) -> None:
         # RFC 4506 padding must be zero; accepting anything else would let two
