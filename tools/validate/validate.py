@@ -58,6 +58,7 @@ import re
 import sys
 import tomllib
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -579,20 +580,127 @@ def _field_line(path: Path, key: str) -> int | None:
     return matches[0] if len(matches) == 1 else None
 
 
+# The engine reads every TOML integer as a signed 64-bit value (Rust's
+# toml::Value::Integer), so a fixture holding e.g. ``sequence_number =
+# 9223372036854775808`` parses fine in Python but is refused by the engine
+# with a fixture parse error (docs/fixture-contract.md section 3 in
+# StellarCanary/Protocol-Canary). Accepting it here would be the opposite
+# of the validator's purpose, so every parsed integer is range-checked
+# (issue #341).
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
+
+
+def _iter_integer_values(data: object) -> Iterator[tuple[str, int]]:
+    """Yield ``(key path, value)`` for every integer anywhere in parsed TOML.
+
+    Deliberately iterative rather than recursive: a fixture whose tables
+    nest just deeply enough to parse must not crash this walk with a
+    RecursionError of its own (issue #341). Key paths look like
+    ``sequence_number``, ``assert[0].min`` or ``args[1].value[2]``.
+    """
+    stack: list[tuple[str, object]] = [("", data)]
+    while stack:
+        key_path, node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                stack.append((f"{key_path}.{key}" if key_path else key, value))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                stack.append((f"{key_path}[{index}]", value))
+        elif isinstance(node, int) and not isinstance(node, bool):
+            yield key_path, node
+
+
+def _magnitude_phrase(value: int) -> str:
+    """Describe ``abs(value)`` without ever stringifying a huge integer.
+
+    ``str()`` on an out-of-range integer can itself raise ValueError (the
+    ``int_max_str_digits`` limit applies to int-to-string conversion too),
+    so a magnitude beyond 64 bits is described by its size instead of by
+    its full digits.
+    """
+    magnitude = abs(value)
+    bits = magnitude.bit_length()
+    if bits <= 64:
+        return str(magnitude)
+    return f"a {bits}-bit number (>= 2^{bits - 1})"
+
+
+def report_out_of_range_integers(path: Path, data: dict, report: Report) -> bool:
+    """Report every integer outside the signed 64-bit range (issue #341).
+
+    Names the file, the key path and the value's magnitude -- never the
+    full digits of a huge literal. Returns True when at least one integer
+    was reported, so ``load_fixture`` can refuse to further validate a
+    document the engine would refuse to load at all.
+    """
+    reported = False
+    for key_path, value in _iter_integer_values(data):
+        if not INT64_MIN <= value <= INT64_MAX:
+            reported = True
+            line = None
+            if key_path and "." not in key_path and "[" not in key_path:
+                line = _field_line(path, key_path)
+            report.error(
+                path,
+                f"integer at {key_path!r} is outside the signed 64-bit range "
+                "-2^63..2^63-1 (the engine reads TOML integers as i64); "
+                f"its magnitude is {_magnitude_phrase(value)}",
+                line=line,
+            )
+    return reported
+
+
 def load_fixture(path: Path, report: Report) -> Fixture | None:
+    # Read raw bytes rather than through read_text so the UnicodeDecodeError
+    # below carries whole-file offsets (issue #341, row 1).
     try:
-        raw = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as exc:
-        report.error(path, f"not valid UTF-8: {exc}")
-        return None
+        raw_bytes = path.read_bytes()
     except OSError as exc:
         report.error(path, f"failed to read file: {exc}")
+        return None
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # exc.start is the offset of the first bad byte in the file.
+        report.error(
+            path,
+            f"file is not valid UTF-8 (byte 0x{raw_bytes[exc.start]:02x} "
+            f"at offset {exc.start}); fixture files must be UTF-8 encoded",
+        )
         return None
     report_unsafe_characters(path, raw, report)
     try:
         data = tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
         report.error(path, f"invalid TOML: {exc}", line=_toml_error_line(exc))
+        return None
+    except RecursionError:
+        # Hostile input: tens of thousands of nested brackets drive the
+        # recursive TOML parser past the interpreter's limit. Report it like
+        # any other parse error instead of dying with a traceback (issue
+        # #341, row 2); the engine likewise rejects it with a parse error.
+        report.error(
+            path,
+            "invalid TOML: nesting is too deep (the tables and arrays nest "
+            "deeper than the TOML parser's recursion limit); flatten the "
+            "structure",
+        )
+        return None
+    except ValueError as exc:
+        # tomllib converts integer literals with int(); a literal beyond
+        # Python's digit limit (sys.int_max_str_digits) raises a plain
+        # ValueError, not a TOMLDecodeError (issue #341, row 3).
+        if "Exceeds the limit" in str(exc):
+            report.error(path, f"invalid TOML: integer literal is too large; {exc}")
+        else:
+            report.error(path, f"invalid TOML: {exc}")
+        return None
+    if report_out_of_range_integers(path, data, report):
+        # The engine would refuse to load this fixture outright, so there is
+        # nothing to gain by validating a document it never sees (issue #341,
+        # row 4).
         return None
     return Fixture(path=path, data=data)
 

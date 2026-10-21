@@ -769,7 +769,7 @@ class ValidatorTests(unittest.TestCase):
     def test_load_fixture_handles_unreadable_file_oserror(self) -> None:
         report = validate.Report()
         path = Path("unreadable.toml")
-        with mock.patch.object(Path, "read_text", side_effect=OSError("Permission denied")):
+        with mock.patch.object(Path, "read_bytes", side_effect=OSError("Permission denied")):
             result = validate.load_fixture(path, report)
         self.assertIsNone(result)
         self.assertEqual(len(report.errors), 1)

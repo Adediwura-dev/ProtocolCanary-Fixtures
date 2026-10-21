@@ -17,6 +17,11 @@ discussion and diff. New entries must include that link; see
   CRC16-XModem checksum, G.../C... version byte) and requires `function` to
   fit at most 32 UTF-8 bytes, matching the engine's transaction builder. Closes
   [issue #343](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/343).
+- `tools/validate/validate.py` rejects hostile fixture input that crashes the
+  validator with a traceback (issue #341): invalid UTF-8 bytes, extreme TOML nesting,
+  and oversized integer literals are now reported as ordinary errors naming the file,
+  exit 1, and no traceback; also every parsed integer outside the signed 64-bit range
+  (-2^63..2^63-1) is rejected with the key path and magnitude (not the full digits).
 - `tools/validate/validate.py` and `schemas/fixture-v1.schema.json` accept
   the `field-number-range` RPC assertion kind with `min` and/or `max` bounds
   (integers or finite floats, with `min <= max`), matching `canary-rpc`
