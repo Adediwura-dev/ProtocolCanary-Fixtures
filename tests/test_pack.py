@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import io
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -240,6 +241,101 @@ class InvalidInputTests(Scratch):
         self.assertEqual(code, 0)
         archive = self.root / "o" / "protocolcanary-fixtures-2.0.0.tar.gz"
         self.assertIn(hashlib.sha256(archive.read_bytes()).hexdigest(), out.getvalue())
+
+
+class ReadAndWriteFailureTests(Scratch):
+    """The OSError branches around reading the pack and writing the archive."""
+
+    @unittest.skipUnless(os.name == "posix", "needs POSIX file permissions")
+    def test_an_unreadable_pack_file_is_a_pack_error(self) -> None:
+        pack_dir = support.write_pack(self.root)
+        victim = pack_dir / "xdr" / "a.toml"
+        os.chmod(victim, 0o000)
+        self.addCleanup(os.chmod, victim, 0o644)
+        with self.assertRaisesRegex(pack.PackError, "could not read the pack"):
+            pack.collect_members(pack_dir)
+
+    def test_an_unwritable_output_directory_is_reported_by_the_cli(self) -> None:
+        support.write_pack(self.root)
+        blocker = self.root / "blocker"
+        blocker.write_bytes(b"i am a file, not a directory")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = pack.main(
+                [
+                    str(self.root / "pack"),
+                    "--version",
+                    "1.0.0",
+                    "--output-dir",
+                    str(blocker / "nested"),
+                ]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("could not write the archive", err.getvalue())
+
+    def test_module_entry_point_exits_zero_on_success(self) -> None:
+        support.write_pack(self.root)
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "pack" / "pack.py"),
+                str(self.root / "pack"),
+                "--version",
+                "3.1.4",
+                "--output-dir",
+                str(self.root / "dist"),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("OK: wrote", run.stdout)
+        self.assertTrue(
+            (self.root / "dist" / "protocolcanary-fixtures-3.1.4.tar.gz").is_file()
+        )
+
+    def test_module_entry_point_exits_one_on_failure(self) -> None:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "pack" / "pack.py"),
+                str(self.root / "absent"),
+                "--version",
+                "1.0.0",
+                "--output-dir",
+                str(self.root / "dist"),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("FAILED: no archive written", run.stderr)
+
+    def test_module_main_guard_runs_in_process(self) -> None:
+        import runpy
+
+        support.write_pack(self.root)
+        argv = sys.argv
+        sys.argv = [
+            "pack.py",
+            str(self.root / "pack"),
+            "--version",
+            "1.0.0",
+            "--output-dir",
+            str(self.root / "dist"),
+        ]
+        self.addCleanup(setattr, sys, "argv", argv)
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                runpy.run_path(
+                    str(REPO_ROOT / "tools" / "pack" / "pack.py"), run_name="__main__"
+                )
+        self.assertEqual(caught.exception.code, 0)
+        self.assertTrue(
+            (self.root / "dist" / "protocolcanary-fixtures-1.0.0.tar.gz").is_file()
+        )
 
 
 if __name__ == "__main__":

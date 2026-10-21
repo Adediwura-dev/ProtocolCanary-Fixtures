@@ -1,0 +1,37 @@
+# Branch-coverage configuration for the Python tools under tools/ (#337).
+#
+# Measured baseline: 97.53% branch coverage over tools/, measured 2026-10-20
+# on upstream/main 93edc2e with `coverage run --branch --source=tools
+# -m unittest discover tests && coverage report -m`, i.e. after the tests
+# added for #335 (tools/release/manifest.py, tools/pack/verify_archive.py and
+# tools/pack/pack.py all went from 85%/93%/96% to 100%).
+#
+# `fail_under` sits ~2.5 points below that baseline, as required by #337: far
+# enough that a legitimate refactor is not blocked, close enough that new code
+# without tests fails CI. Raise it deliberately when the baseline rises (and
+# update the numbers above in the same change).
+#
+# CI runs this configuration on one operating system only (ubuntu-latest, the
+# `coverage` job in .github/workflows/validate.yml) with coverage pinned to
+# 7.16.2. Local usage is documented in CONTRIBUTING.md ("Coverage") and the
+# same commands are wrapped by `make coverage`.
+
+[run]
+branch = True
+source = tools
+
+[report]
+fail_under = 95
+show_missing = True
+# Two decimals so the summary table shows the real distance to fail_under
+# (e.g. 97.53 rather than a rounded 98) instead of hiding a slow decline.
+precision = 2
+# tools/ has no __init__.py files, so coverage's unexecuted-file discovery
+# (which by default only descends into package directories) would find no
+# never-imported tool module: it would silently vanish from the report instead
+# of showing 0%, and new tool code with no test at all would not count against
+# fail_under. This flag makes the walk descend into plain directories too, so
+# every tools/ file is always in the table and in the threshold total.
+# (coverage 7.16.2 registers this option in the [report] section; [run] warns
+# "Unrecognized option" even though the run-time data touch honours it.)
+include_namespace_packages = True
