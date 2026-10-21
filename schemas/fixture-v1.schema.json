@@ -134,7 +134,13 @@
               "properties": {
                 "kind": {
                   "type": "string",
-                  "enum": ["field-exists", "field-absent", "field-type", "field-equals"]
+                  "enum": [
+                    "field-exists",
+                    "field-absent",
+                    "field-type",
+                    "field-equals",
+                    "field-number-range"
+                  ]
                 },
                 "field": { "type": "string", "minLength": 1 },
                 "value": {
@@ -144,8 +150,27 @@
                   "type": "string",
                   "enum": ["string", "number", "bool", "object", "array", "null"],
                   "description": "JSON type names accepted for an RPC field-type assertion. Keep this enum in sync with RPC_ASSERT_TYPES in tools/validate/validate.py."
+                },
+                "min": {
+                  "type": "number",
+                  "description": "Minimum value (inclusive) for kind = field-number-range. At least one of 'min' or 'max' is required; when both are present, min must not exceed max."
+                },
+                "max": {
+                  "type": "number",
+                  "description": "Maximum value (inclusive) for kind = field-number-range. At least one of 'min' or 'max' is required; when both are present, min must not exceed max."
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "kind": { "const": "field-number-range" } } },
+                  "then": {
+                    "anyOf": [
+                      { "required": ["min"] },
+                      { "required": ["max"] }
+                    ]
+                  }
+                }
+              ]
             }
           }
         }
