@@ -383,6 +383,155 @@
         }
       },
       "xdr_hex": "00000012000000015555555555555555555555555555555555555555555555555555555555555555"
+    },
+    {
+      "name": "error_ok",
+      "note": "SCV_ERROR discriminant 2, SCE_OK discriminant 0 carries no payload",
+      "scval": {
+        "type": "error",
+        "value": {
+          "type": "ok"
+        }
+      },
+      "xdr_hex": "0000000200000000"
+    },
+    {
+      "name": "error_type_with_code",
+      "note": "SCV_ERROR discriminant 2, SCE_TYPE discriminant 1 with u32 code",
+      "scval": {
+        "type": "error",
+        "value": {
+          "type": "type",
+          "code": 42
+        }
+      },
+      "xdr_hex": "00000002000000010000002a"
+    },
+    {
+      "name": "error_contract_with_code",
+      "note": "SCV_ERROR discriminant 2, SCE_CONTRACT discriminant 6 with u32 code",
+      "scval": {
+        "type": "error",
+        "value": {
+          "type": "contract",
+          "code": 100
+        }
+      },
+      "xdr_hex": "000000020000000600000064"
+    },
+    {
+      "name": "ledger_key_contract_instance",
+      "note": "SCV_LEDGER_KEY_CONTRACT_INSTANCE discriminant 20, void arm carries no payload",
+      "scval": {
+        "type": "ledger-key-contract-instance",
+        "value": null
+      },
+      "xdr_hex": "00000014"
+    },
+    {
+      "name": "ledger_key_nonce_contract",
+      "note": "SCV_LEDGER_KEY_NONCE discriminant 21 with contract address and u64 nonce",
+      "scval": {
+        "type": "ledger-key-nonce",
+        "value": {
+          "address": {
+            "type": "contract",
+            "contract_id": "5555555555555555555555555555555555555555555555555555555555555555"
+          },
+          "nonce": 42
+        }
+      },
+      "xdr_hex": "00000015000000015555555555555555555555555555555555555555555555555555555555555555000000000000002a"
+    },
+    {
+      "name": "ledger_key_nonce_account_zero",
+      "note": "SCV_LEDGER_KEY_NONCE discriminant 21 with account address and zero nonce",
+      "scval": {
+        "type": "ledger-key-nonce",
+        "value": {
+          "address": {
+            "type": "account",
+            "ed25519": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "nonce": 0
+        }
+      },
+      "xdr_hex": "00000015000000000000000011111111111111111111111111111111111111111111111111111111111111110000000000000000"
+    },
+    {
+      "name": "contract_instance_wasm_no_storage",
+      "note": "SCV_CONTRACT_INSTANCE discriminant 19 with Wasm executable and no storage",
+      "scval": {
+        "type": "contract-instance",
+        "value": {
+          "executable": {
+            "type": "wasm",
+            "wasm_hash": "abababababababababababababababababababababababababababababababab"
+          },
+          "storage": null
+        }
+      },
+      "xdr_hex": "0000001300000000abababababababababababababababababababababababababababababababab00000000"
+    },
+    {
+      "name": "contract_instance_stellar_asset_with_external_ref_storage",
+      "note": "SCV_CONTRACT_INSTANCE discriminant 19 with StellarAsset executable and ExternalRef storage",
+      "scval": {
+        "type": "contract-instance",
+        "value": {
+          "executable": {
+            "type": "stellar-asset"
+          },
+          "storage": {
+            "type": "external-ref",
+            "owner": {
+              "type": "contract",
+              "contract_id": "5555555555555555555555555555555555555555555555555555555555555555"
+            },
+            "tag": "fleet-v1"
+          }
+        }
+      },
+      "xdr_hex": "0000001300000001000000010000000200000001555555555555555555555555555555555555555555555555555555555555555500000008666c6565742d7631"
+    },
+    {
+      "name": "executable_tag_wasm",
+      "note": "SCV_EXECUTABLE_TAG discriminant 22, CONTRACT_EXECUTABLE_WASM (0) with 32-byte hash",
+      "scval": {
+        "type": "executable-tag",
+        "value": {
+          "type": "wasm",
+          "wasm_hash": "abababababababababababababababababababababababababababababababab"
+        }
+      },
+      "xdr_hex": "0000001600000000abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "name": "executable_tag_stellar_asset",
+      "note": "SCV_EXECUTABLE_TAG discriminant 22, CONTRACT_EXECUTABLE_STELLAR_ASSET (1) void arm",
+      "scval": {
+        "type": "executable-tag",
+        "value": {
+          "type": "stellar-asset"
+        }
+      },
+      "xdr_hex": "0000001600000001"
+    },
+    {
+      "name": "executable_tag_external_ref",
+      "note": "SCV_EXECUTABLE_TAG discriminant 22, CONTRACT_EXECUTABLE_EXTERNAL_REF (2) with owner and tag",
+      "scval": {
+        "type": "executable-tag",
+        "value": {
+          "type": "external-ref",
+          "owner": {
+            "type": "contract",
+            "contract_id": "5555555555555555555555555555555555555555555555555555555555555555"
+          },
+          "tag": "fleet-v1"
+        }
+      },
+      "xdr_hex": "000000160000000200000001555555555555555555555555555555555555555555555555555555555555555500000008666c6565742d7631"
     }
   ]
 }
