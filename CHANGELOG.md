@@ -279,6 +279,29 @@ discussion and diff. New entries must include that link; see
   <!-- TODO: switch to the PR link once this PR is opened. -->
   ([#354])
 
+- `tools/validate/portable_names.py`: one shared Windows-portable path rule
+  for fixture packs, called by `tools/validate/validate.py`,
+  `tools/registry/generate.py` and `tools/pack/verify_archive.py` so the three
+  tools cannot disagree. It rejects reserved device names (`CON`, `PRN`,
+  `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`) in any letter case and with any
+  extension, segments ending in a dot or a space, and the characters
+  `<`, `>`, `:`, `"`, `|`, `?` and `*`. A pack containing `con.toml`,
+  `aux.v2.toml`, `NUL` or `bad./fixture.toml` now fails at validation,
+  registry-generation and archive-verification time instead of failing later
+  on a Windows checkout. Closes
+  [issue #323](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/323).
+  ([PR #380])
+- Fixture-text scanning in `tools/validate/validate.py`: fixture TOML files,
+  and verification evidence JSON files read through `--evidence`, now reject
+  bidirectional override and isolate characters, zero-width and other `Cf`
+  format characters, a byte order mark outside the first character, and `Cc`
+  control characters other than tab, line feed and carriage return. The
+  diagnostic names the file, 1-based line, 1-based column and code point in
+  `U+XXXX` form; the validator reports and never rewrites the file. Tab, LF,
+  CR, accented letters and CJK text remain valid. Closes
+  [issue #322](https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/322).
+  ([PR #380])
+
 
 ### Changed
 
@@ -487,3 +510,4 @@ discussion and diff. New entries must include that link; see
 [#358]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/358
 [#357]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/357
 [#354]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/issues/354
+[PR #380]: https://github.com/StellarCanary/ProtocolCanary-Fixtures/pull/380

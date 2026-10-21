@@ -73,6 +73,24 @@ class PackError(Exception):
     """The pack, or a fixture in it, breaks a CF-02 rule. Never repaired."""
 
 
+def _load_portable_names():
+    """Import tools/validate/portable_names.py without needing a package."""
+    name = "canary_portable_names"
+    existing = sys.modules.get(name)
+    if existing is not None:
+        return existing
+    path = REPO_ROOT / "tools" / "validate" / "portable_names.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+portable_names = _load_portable_names()
+
+
 def _load_schema_validator():
     """Import tools/validate/jsonschema_lite.py without needing a package."""
     path = REPO_ROOT / "tools" / "validate" / "jsonschema_lite.py"
@@ -106,6 +124,10 @@ def check_pack_path(path: str) -> None:
             raise PackError(f"pack path {path!r} has an empty segment")
         if segment in (".", ".."):
             raise PackError(f"pack path {path!r} contains a {segment!r} segment")
+        try:
+            portable_names.check_segment(segment)
+        except portable_names.PortableNameError as error:
+            raise PackError(f"pack path {path!r}: {error}") from None
     for char in path:
         if char == "\x00" or unicodedata.category(char) == "Cc":
             raise PackError(f"pack path {path!r} contains a control character")

@@ -61,6 +61,7 @@ def _load(name: str, relative: str):
 
 generate = _load("registry_generate", "tools/registry/generate.py")
 validator = _load("fixture_validate", "tools/validate/validate.py")
+portable_names = _load("canary_portable_names", "tools/validate/portable_names.py")
 
 
 class ArchiveError(Exception):
@@ -105,6 +106,10 @@ def _check_member_path(name: str) -> None:
         raise ArchiveError(f"{name!r} has a '.' or '..' path segment")
     if len(parts) > MAX_DEPTH:
         raise ArchiveError(f"{name!r} is deeper than {MAX_DEPTH} path segments")
+    try:
+        portable_names.check_path(name)
+    except portable_names.PortableNameError as error:
+        raise ArchiveError(f"{name!r}: {error}") from None
     try:
         generate.check_pack_path(name)
     except generate.PackError as error:

@@ -24,6 +24,31 @@ CF-02-H (`.gitattributes` pinning LF for pack files).
 | [CF-06 Canonical fixture releases](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-06-fixture-releases.md) | The deterministic archive builder, the release manifest, the release workflow and the immutability rules. The existing `protocol-28` tag keeps its meaning. |
 | [CF-07 Project detection](https://github.com/StellarCanary/Protocol-Canary/blob/main/docs/contracts/cf-07-project-roots-and-detection.md) | Only the `required_capabilities` vocabulary: it must match the engine's `Capability` set, enforced by a cross-language test. |
 
+## Portable paths and safe text
+
+Two repository-wide rules apply to every pack, independent of which protocol
+or surface a fixture targets:
+
+- **Portable path names (F-049).** Every pack-relative path segment must be a
+  name Windows can create, because the engine extracts packs on Windows as
+  well as on Linux and macOS. A segment may not be a reserved device name
+  (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`) in any letter
+  case or with any extension, may not end in a dot or a space, and may not
+  contain `<`, `>`, `:`, `"`, `|`, `?` or `*`. The rule lives in
+  [`tools/validate/portable_names.py`](../tools/validate/portable_names.py)
+  and is called by the validator, the registry generator and the archive
+  verifier so the three tools cannot disagree. The engine's own extractor
+  does not yet list Windows device names in its rule set; that remains an
+  engine-side decision and is not changed from this repository.
+- **Safe text (F-048).** Fixture TOML files and verification evidence JSON
+  read through `--evidence` must be valid UTF-8 and may not contain
+  bidirectional override or isolate characters (U+202A-U+202E and
+  U+2066-U+2069), zero-width or other `Cf` format characters, a byte order
+  mark anywhere except the first character, or `Cc` control characters other
+  than tab, line feed and carriage return. The validator reports the file,
+  1-based line, 1-based column and code point in `U+XXXX` form. It never
+  rewrites or strips a file: the contributor fixes the source.
+
 ## Facts about this repository that the contracts rely on
 
 Checked against `main` at `828b41c` on 2026-10-09:

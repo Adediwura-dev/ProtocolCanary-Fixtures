@@ -478,6 +478,59 @@ class InvalidPackTests(PackCase):
                 generate.check_pack_path(bad)
         generate.check_pack_path("cap-0083/\u00e9.toml")  # valid UTF-8 is fine
 
+    def test_windows_reserved_device_names_are_rejected(self) -> None:
+        for name, segment in (
+            ("con.toml", "con.toml"),
+            ("NUL", "NUL"),
+            ("Aux.toml", "Aux.toml"),
+            ("com1.toml", "com1.toml"),
+            ("lpt9.toml", "lpt9.toml"),
+            ("aux.v2.toml", "aux.v2.toml"),
+            ("d/con/f.toml", "con"),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(generate.PackError) as caught:
+                    generate.check_pack_path(name)
+                self.assertIn("device name", str(caught.exception))
+                self.assertIn(segment, str(caught.exception))
+
+    def test_non_portable_segments_and_characters_are_rejected(self) -> None:
+        for name in (
+            "d./f.toml",
+            "d /f.toml",
+            "d/a:b.toml",
+            "d/a?.toml",
+            "d/a*.toml",
+            "d/a<b.toml",
+            "d/a>b.toml",
+            'd/a"b.toml',
+            "d/a|b.toml",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(generate.PackError) as caught:
+                    generate.check_pack_path(name)
+                message = str(caught.exception)
+                self.assertTrue(
+                    "ends in a dot or a space" in message
+                    or "Windows does not allow" in message,
+                    message,
+                )
+
+    def test_portable_names_and_unicode_lookalikes_are_accepted(self) -> None:
+        for name in (
+            "console.toml",
+            "p28-xdr-con.toml",
+            "lpt10.toml",
+            "\u0421ON.toml",  # Cyrillic ES, not an ASCII C
+        ):
+            with self.subTest(name=name):
+                generate.check_pack_path(name)
+
+    def test_a_pack_containing_a_reserved_name_is_rejected(self) -> None:
+        self.assert_invalid(
+            {"xdr/con.toml": fixture_toml("p28-con")}, "con.toml", "device name"
+        )
+
     def test_names_that_differ_only_by_case(self) -> None:
         root = self.base / "case"
         (root / "d").mkdir(parents=True)

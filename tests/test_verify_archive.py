@@ -162,6 +162,59 @@ class UnsafeArchiveTests(VerifyBase):
     def test_backslash_in_a_name(self) -> None:
         self.check_refused(self.hostile([support.entry("a\\b.toml", b"x")]), "backslash")
 
+    def archive_with(self, extra, index: int) -> Path:
+        """A fresh golden pack plus ``extra`` entries, so loops do not collide."""
+        entries = support.valid_members(self.root / f"src-{index}") + extra
+        return support.tar_gz(entries, self.root / f"hostile-{index}.tar.gz")
+
+    def test_windows_reserved_device_names(self) -> None:
+        for index, name in enumerate(
+            (
+                "xdr/con.toml",
+                "NUL",
+                "xdr/Aux.toml",
+                "xdr/com1.toml",
+                "xdr/lpt9.toml",
+                "xdr/aux.v2.toml",
+                "con/f.toml",
+            )
+        ):
+            with self.subTest(name=name):
+                self.check_refused(
+                    self.archive_with([support.entry(name, support.A_TOML)], index),
+                    "device name",
+                )
+
+    def test_non_portable_segments_and_characters(self) -> None:
+        for index, name in enumerate(
+            (
+                "xdr/bad./f.toml",
+                "xdr/bad /f.toml",
+                "xdr/a:b.toml",
+                "xdr/a?.toml",
+                "xdr/a*.toml",
+                "xdr/a<b.toml",
+                "xdr/a>b.toml",
+                'xdr/a"b.toml',
+                "xdr/a|b.toml",
+            )
+        ):
+            with self.subTest(name=name):
+                self.check_refused(
+                    self.archive_with([support.entry(name, support.A_TOML)], index),
+                    "dot or a space|Windows does not allow",
+                )
+
+    def test_portable_names_and_unicode_lookalikes_are_accepted(self) -> None:
+        for name in (
+            "xdr/console.toml",
+            "xdr/p28-xdr-con.toml",
+            "xdr/lpt10.toml",
+            "xdr/\u0421ON.toml",  # Cyrillic ES, not an ASCII C
+        ):
+            with self.subTest(name=name):
+                verify._check_member_path(name)
+
     def test_symbolic_link(self) -> None:
         extra = [support.link_entry("xdr/link.toml", "/etc/passwd", hard=False)]
         self.check_refused(self.hostile(extra), "symbolic link")
