@@ -855,8 +855,15 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
                 f"unexpected key(s) {', '.join(repr(k) for k in unknown_assert_keys)} in "
                 f"assert[{i}]; accepted keys are {sorted(RPC_ASSERT_FIELDS)}",
             )
-        if not a.get("field"):
+        field_value = a.get("field")
+        if field_value is None or field_value == "":
             report.error(path, f"assert[{i}] missing required non-empty 'field'")
+        elif not isinstance(field_value, str):
+            report.error(
+                path,
+                f"assert[{i}].field must be a non-empty string, "
+                f"got {type(field_value).__name__}",
+            )
         if kind == "field-equals" and "value" not in a:
             report.error(path, f"assert[{i}] with kind=field-equals requires 'value'")
         if kind == "field-type":
@@ -1673,12 +1680,6 @@ def main(argv: list[str]) -> int:
         total_files += len(find_fixture_files(root))
         combined.merge(validate_directory(root))
 
-    if args.format == "json":
-        # One complete document on stdout and nothing else, so `| jq` and
-        # `json.load` both see valid JSON regardless of whether the run passed.
-        sys.stdout.write(render_json(build_json_report(combined, roots, total_files)))
-        return 0 if combined.ok else 1
-
     evidence_files: list[Path] = []
     for target in args.evidence:
         if not target.exists():
@@ -1691,6 +1692,12 @@ def main(argv: list[str]) -> int:
             record = validate_evidence_file(path, combined)
             if record is not None:
                 check_evidence_against_fixtures(path, record, hashes, combined)
+
+    if args.format == "json":
+        # One complete document on stdout and nothing else, so `| jq` and
+        # `json.load` both see valid JSON regardless of whether the run passed.
+        sys.stdout.write(render_json(build_json_report(combined, roots, total_files)))
+        return 0 if combined.ok else 1
 
     if not args.quiet:
         for warning in combined.warnings:

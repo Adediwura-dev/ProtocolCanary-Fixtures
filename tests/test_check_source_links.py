@@ -11,10 +11,11 @@ import os
 import tempfile
 import threading
 import time
+import urllib.error
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tools.validate.check_source_links import (
     CheckResult,
@@ -235,6 +236,21 @@ source_reference = "ftp://example.com/spec.txt"
         finally:
             temp_path.unlink()
 
+    def test_extract_links_from_unreadable_file(self) -> None:
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
+            self.assertEqual(extract_links_from_file(Path("unreadable.toml")), [])
+
+    def test_extract_links_keeps_header_urls_when_toml_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "broken.toml"
+            path.write_text(
+                "# https://example.com/header\nnot valid [[[ toml\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                extract_links_from_file(path), ["https://example.com/header"]
+            )
+
     def test_check_link_200_ok(self) -> None:
         res = check_link(f"{self.base_url}/200")
         self.assertEqual(res.status, "OK")
@@ -258,6 +274,62 @@ source_reference = "ftp://example.com/spec.txt"
         res = check_link(f"{self.base_url}/500")
         self.assertEqual(res.status, "Failed")
         self.assertIn("500", res.formatted())
+
+    def test_check_link_post_fallback_failures(self) -> None:
+        url = f"{self.base_url}/rpc-endpoint"
+        cases = (
+            (
+                urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None),
+                "Inconclusive",
+                "429",
+            ),
+            (urllib.error.HTTPError(url, 503, "Unavailable", {}, None), "Failed", "503"),
+            (RuntimeError("connection reset"), "Failed", "POST fallback failed"),
+        )
+        for post_error, expected_status, expected_detail in cases:
+            with self.subTest(error=type(post_error).__name__):
+                opener = Mock()
+                opener.open.side_effect = [
+                    urllib.error.HTTPError(url, 405, "Method Not Allowed", {}, None),
+                    post_error,
+                ]
+                result = check_link(url, opener=opener)
+                self.assertEqual(result.status, expected_status)
+                self.assertIn(expected_detail, result.formatted())
+                self.assertEqual(opener.open.call_count, 2)
+
+    def test_check_link_network_and_unexpected_errors(self) -> None:
+        cases = (
+            (urllib.error.URLError("connection refused"), "network error"),
+            (RuntimeError("unexpected"), "RuntimeError"),
+        )
+        for error, expected_detail in cases:
+            with self.subTest(error=type(error).__name__):
+                opener = Mock()
+                opener.open.side_effect = error
+                result = check_link("https://example.com/", opener=opener)
+                self.assertEqual(result.status, "Failed")
+                self.assertIn(expected_detail, result.formatted())
+
+    def test_check_link_rejects_invalid_and_hostless_urls(self) -> None:
+        invalid = check_link("http://[invalid")
+        self.assertEqual(invalid.status, "Failed")
+        self.assertIn("invalid URL", invalid.formatted())
+
+        hostless = check_link("http:///path")
+        self.assertEqual(hostless.status, "Failed")
+        self.assertIn("missing host", hostless.formatted())
+
+    def test_check_link_handles_final_status_without_http_error(self) -> None:
+        for status, expected_status in ((429, "Inconclusive"), (503, "Failed")):
+            with self.subTest(status=status):
+                response = Mock(status=status, headers={})
+                opener = Mock()
+                opener.open.return_value = response
+                result = check_link("https://example.com/", opener=opener)
+                self.assertEqual(result.status, expected_status)
+                self.assertIn(str(status), result.formatted())
+                response.close.assert_called_once_with()
 
     def test_check_link_redirect_limit(self) -> None:
         # Chain has 3 redirects; limit of 2 should fail
@@ -356,6 +428,64 @@ source_reference = "ftp://example.com/spec.txt"
             self.assertEqual(exit_code, 1)
             output = stdout_buf.getvalue()
             self.assertIn("Failed (HTTP 404)", output)
+
+    def test_main_rejects_invalid_explicit_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            non_toml = root / "not-a-fixture.txt"
+            non_toml.write_text("content", encoding="utf-8")
+            missing = root / "missing"
+
+            for path in (missing, non_toml):
+                with self.subTest(path=path):
+                    stderr_buf = io.StringIO()
+                    with patch("sys.stderr", stderr_buf):
+                        exit_code = main([str(path)])
+                    self.assertEqual(exit_code, 2)
+                    self.assertIn(str(path), stderr_buf.getvalue())
+
+    def test_main_rejects_explicit_roots_without_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            empty = Path(tmp_dir) / "empty"
+            empty.mkdir()
+            stderr_buf = io.StringIO()
+            with patch("sys.stderr", stderr_buf):
+                exit_code = main([str(empty)])
+            self.assertEqual(exit_code, 2)
+            self.assertIn(str(empty), stderr_buf.getvalue())
+
+    def test_main_accepts_a_toml_file_as_an_explicit_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fixture = Path(tmp_dir) / "fixture.toml"
+            fixture.write_text('source_reference = "CAP-0083"\n', encoding="utf-8")
+            stdout_buf = io.StringIO()
+            with patch("sys.stdout", stdout_buf):
+                exit_code = main([str(fixture)])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("0 checked across 1 fixture files", stdout_buf.getvalue())
+
+    def test_main_uses_default_roots_without_rejecting_empty_packs(self) -> None:
+        default_root = Path("protocol-27")
+        with patch.object(Path, "glob", return_value=[default_root]), patch(
+            "tools.validate.check_source_links.find_fixture_files", return_value=[]
+        ) as find_files:
+            stdout_buf = io.StringIO()
+            with patch("sys.stdout", stdout_buf):
+                exit_code = main([])
+        self.assertEqual(exit_code, 0)
+        self.assertIn("0 checked across 0 fixture files", stdout_buf.getvalue())
+        find_files.assert_called_once_with(default_root)
+
+    def test_main_warns_when_summary_file_cannot_be_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            (Path(tmp_dir) / "fixture.toml").write_text(
+                'source_reference = "CAP-0083"\n', encoding="utf-8"
+            )
+            stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
+            with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+                exit_code = main([tmp_dir, "--summary-file", tmp_dir])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Warning: could not write to summary file", stderr_buf.getvalue())
 
 
 if __name__ == "__main__":

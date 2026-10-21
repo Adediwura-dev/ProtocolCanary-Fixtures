@@ -966,6 +966,21 @@ value = 28
         report = self.run_validation({"a.toml": bad})
         self.assertTrue(any("missing required non-empty 'field'" in e for e in report.errors))
 
+    def test_rpc_fixture_rejects_non_string_assert_field(self) -> None:
+        cases = (("42", "int"), ("true", "bool"), ('["a"]', "list"), ("{a = 1}", "dict"))
+        for value, actual_type in cases:
+            with self.subTest(value=value):
+                bad = RPC_HEADER + f"""
+[[assert]]
+kind = "field-equals"
+field = {value}
+value = 28
+"""
+                report = self.run_validation({"a.toml": bad})
+                errors = [error for error in report.errors if "assert[0].field" in error]
+                self.assertEqual(len(errors), 1, report.errors)
+                self.assertIn(actual_type, errors[0])
+
     def test_rpc_fixture_rejects_field_equals_without_value(self) -> None:
         bad = RPC_HEADER + """
 [[assert]]
@@ -2376,6 +2391,29 @@ class EvidenceCommandLineTests(unittest.TestCase):
         code, out, err = self.run_main("--evidence", str(self.evidence))
         self.assertEqual(code, 0, err)
         self.assertIn("1 evidence record(s) valid", out)
+
+    def test_json_format_validates_evidence_like_text_mode(self) -> None:
+        valid_path = self.write("valid.json", self.record())
+        invalid_path = self.write("invalid.json", self.record(method="live-read-only"))
+        missing_path = self.evidence / "missing.json"
+
+        cases = ((valid_path, True), (invalid_path, False), (missing_path, False))
+        for evidence_path, expected_valid in cases:
+            with self.subTest(path=evidence_path.name):
+                json_code, json_out, json_err = self.run_main(
+                    "--evidence", str(evidence_path), "--format", "json"
+                )
+                document = json.loads(json_out)
+                text_code, _, _ = self.run_main("--evidence", str(evidence_path))
+                self.assertEqual(json_err, "")
+                self.assertEqual(json_code, text_code)
+                self.assertEqual(document["valid"], expected_valid)
+                self.assertEqual(document["valid"], json_code == 0)
+                if not expected_valid:
+                    self.assertTrue(document["errors"])
+                    self.assertTrue(
+                        any(str(evidence_path) in error["path"] for error in document["errors"])
+                    )
 
     def test_an_invalid_record_fails_with_its_path(self) -> None:
         path = self.write("bad.json", self.record(method="live-read-only"))
