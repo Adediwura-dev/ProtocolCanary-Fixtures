@@ -559,11 +559,12 @@ def _require(data: dict, key: str, expected_type: type, path: Path, report: Repo
     if key not in data:
         report.error(path, f"missing required field {key!r}")
         return False
-    if not isinstance(data[key], expected_type):
+    val = data[key]
+    if (expected_type is int and isinstance(val, bool)) or not isinstance(val, expected_type):
         report.error(
             path,
             f"field {key!r} must be of type {expected_type.__name__}, "
-            f"got {type(data[key]).__name__}",
+            f"got {type(val).__name__}",
             line=_field_line(path, key),
         )
         return False
@@ -703,7 +704,7 @@ def validate_top_level_keys(fx: Fixture, report: Report) -> None:
     bury the real error in noise.
     """
     surface = fx.data.get("surface")
-    if surface not in SURFACE_FIELDS:
+    if not isinstance(surface, str) or surface not in SURFACE_FIELDS:
         return
     allowed = (
         set(COMMON_REQUIRED_FIELDS)
@@ -721,11 +722,18 @@ def validate_top_level_keys(fx: Fixture, report: Report) -> None:
 
 def _validate_base64(value: str, field_name: str, path: Path, report: Report) -> None:
     try:
-        base64.b64decode(value, validate=True)
+        decoded = base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError) as exc:
         report.error(
             path,
             f"field {field_name!r} is not valid base64: {exc}",
+            line=_field_line(path, field_name),
+        )
+        return
+    if base64.b64encode(decoded).decode("ascii") != value:
+        report.error(
+            path,
+            f"field {field_name!r} is not canonical base64",
             line=_field_line(path, field_name),
         )
 
@@ -793,10 +801,11 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
             report.error(path, f"assert[{i}] must be a table")
             continue
         kind = a.get("kind")
-        if kind not in RPC_ASSERT_KINDS:
+        if not isinstance(kind, str) or kind not in RPC_ASSERT_KINDS:
+            actual = type(kind).__name__ if not isinstance(kind, str) else repr(kind)
             report.error(
                 path,
-                f"assert[{i}].kind must be one of {sorted(RPC_ASSERT_KINDS)}, got {kind!r}",
+                f"assert[{i}].kind must be one of {sorted(RPC_ASSERT_KINDS)}, got {actual}",
             )
         unknown_assert_keys = sorted(set(a) - set(RPC_ASSERT_FIELDS))
         if unknown_assert_keys:
@@ -811,11 +820,16 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
             report.error(path, f"assert[{i}] with kind=field-equals requires 'value'")
         if kind == "field-type":
             expected_type = a.get("expected_type")
-            if expected_type not in RPC_ASSERT_TYPES:
+            if not isinstance(expected_type, str) or expected_type not in RPC_ASSERT_TYPES:
+                actual = (
+                    type(expected_type).__name__
+                    if not isinstance(expected_type, str)
+                    else repr(expected_type)
+                )
                 report.error(
                     path,
                     f"assert[{i}].expected_type must be one of {sorted(RPC_ASSERT_TYPES)}, "
-                    f"got {expected_type!r}",
+                    f"got {actual}",
                 )
 
 
@@ -867,10 +881,11 @@ def validate_soroban_body(fx: Fixture, report: Report) -> None:
         )
 
     kind = expect.get("kind")
-    if kind not in SOROBAN_EXPECT_KINDS:
+    if not isinstance(kind, str) or kind not in SOROBAN_EXPECT_KINDS:
+        actual = type(kind).__name__ if not isinstance(kind, str) else repr(kind)
         report.error(
             path,
-            f"expect.kind must be one of {sorted(SOROBAN_EXPECT_KINDS)}, got {kind!r}",
+            f"expect.kind must be one of {sorted(SOROBAN_EXPECT_KINDS)}, got {actual}",
             line=_field_line(path, "kind"),
         )
 
@@ -912,8 +927,13 @@ def validate_body(fx: Fixture, report: Report) -> None:
     # An invalid/missing surface was already reported by validate_common_fields.
 
 
-def validate_unique_ids(fixtures: list[Fixture], report: Report) -> None:
-    seen: dict[str, Path] = {}
+def validate_unique_ids(
+    fixtures: list[Fixture],
+    report: Report,
+    seen: dict[str, Path] | None = None,
+) -> dict[str, Path]:
+    if seen is None:
+        seen = {}
     for fx in fixtures:
         fid = fx.data.get("id")
         if not isinstance(fid, str):
@@ -926,6 +946,7 @@ def validate_unique_ids(fixtures: list[Fixture], report: Report) -> None:
             )
         else:
             seen[fid] = fx.path
+    return seen
 
 
 def check_portable_paths(root: Path, report: Report) -> None:
@@ -947,7 +968,7 @@ def check_portable_paths(root: Path, report: Report) -> None:
             report.error(path, f"non-portable file name: {error}")
 
 
-def validate_directory(root: Path) -> Report:
+def validate_directory(root: Path, seen_ids: dict[str, Path] | None = None) -> Report:
     report = Report()
     fixtures: list[Fixture] = []
     check_portable_paths(root, report)
@@ -964,7 +985,7 @@ def validate_directory(root: Path) -> Report:
         validate_body(fx, report)
         validate_top_level_keys(fx, report)
 
-    validate_unique_ids(fixtures, report)
+    validate_unique_ids(fixtures, report, seen=seen_ids)
     return report
 
 
@@ -1278,15 +1299,25 @@ def main(argv: list[str]) -> int:
         roots = sorted(p for p in repo_root.glob("protocol-*") if p.is_dir())
         if not roots:
             roots = [repo_root]
+    else:
+        seen_roots: set[Path] = set()
+        deduped_roots: list[Path] = []
+        for r in roots:
+            resolved = r.resolve()
+            if resolved not in seen_roots:
+                seen_roots.add(resolved)
+                deduped_roots.append(r)
+        roots = deduped_roots
 
     combined = Report()
     total_files = 0
+    seen_ids: dict[str, Path] = {}
     for root in roots:
         if not root.is_dir():
             combined.error(root, "not a directory")
             continue
         total_files += len(find_fixture_files(root))
-        combined.merge(validate_directory(root))
+        combined.merge(validate_directory(root, seen_ids=seen_ids))
 
     if args.format == "json":
         # One complete document on stdout and nothing else, so `| jq` and
