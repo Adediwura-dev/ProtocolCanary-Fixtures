@@ -218,6 +218,29 @@ def check_sync(schema: dict, validator) -> list[str]:
             errors,
         )
 
+        args_items = _get(soroban, "properties", "args", "items")
+        if not isinstance(args_items, dict):
+            errors.append("soroban args: schema has no args.items object")
+        else:
+            _compare(
+                "soroban args kind enum",
+                validator.SOROBAN_ARG_KINDS,
+                _enum_values(_get(args_items, "properties", "kind")),
+                errors,
+            )
+            arg_properties = _get(args_items, "properties")
+            _compare(
+                "soroban args fields",
+                validator.SOROBAN_ARG_FIELDS,
+                list(arg_properties) if isinstance(arg_properties, dict) else [],
+                errors,
+            )
+            if args_items.get("additionalProperties") is not False:
+                errors.append(
+                    "soroban args: schema must set additionalProperties: false on "
+                    "args.items, mirroring canary-soroban's closed key set"
+                )
+
     return errors
 
 

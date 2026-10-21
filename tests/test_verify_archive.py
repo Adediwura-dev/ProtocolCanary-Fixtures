@@ -12,12 +12,15 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import io
+import json
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pack_support as support  # noqa: E402
@@ -304,7 +307,6 @@ class UnsafeArchiveTests(VerifyBase):
         archive = self.valid_archive()
         document = manifest.build_manifest(archive, revision=support.REVISION, engines=[])
         path = self.root / "m.json"
-        import json
 
         path.write_text(json.dumps(document), encoding="utf-8")
         err = io.StringIO()
@@ -314,6 +316,138 @@ class UnsafeArchiveTests(VerifyBase):
         self.assertIn("disagrees", err.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(verify.main([str(archive), "--manifest", str(path)]), 0)
+
+
+class PathRuleGapTests(VerifyBase):
+    """Entry-name rules that hostile archives and direct calls exercise (F-061)."""
+
+    def test_a_nul_in_an_entry_name_is_refused(self) -> None:
+        # tarfile truncates a name at an embedded NUL when packing, so the
+        # rule is asserted against the checker itself.
+        with self.assertRaisesRegex(verify.ArchiveError, "NUL"):
+            verify._check_member_path("a\0b.toml")
+
+    def test_an_empty_path_segment_is_refused(self) -> None:
+        self.check_refused(
+            self.hostile([support.entry("a//b.toml", b"x")]), "empty path segment"
+        )
+
+    def test_a_control_character_in_a_name_is_refused(self) -> None:
+        self.check_refused(
+            self.hostile([support.entry("xdr/a\x01b.toml", b"x")]), "control character"
+        )
+
+
+class ExtractAndSchemaGapTests(VerifyBase):
+    """The remaining extraction and verification branches (F-061)."""
+
+    def test_a_member_that_cannot_be_read_is_reported(self) -> None:
+        original = tarfile.TarFile.extractfile
+
+        def fake_extractfile(self, member):
+            if member.name == "xdr/a.bin":
+                return None
+            return original(self, member)
+
+        with mock.patch.object(tarfile.TarFile, "extractfile", fake_extractfile):
+            result = verify.verify_archive(self.valid_archive())
+        self.assertFalse(result.ok)
+        self.assertIn("could not be read", result.problems[0])
+
+    def test_a_registry_that_does_not_conform_to_the_schema_is_reported(self) -> None:
+        entries = []
+        for info, data in support.valid_members(self.root / "src"):
+            if info.name == "registry.json":
+                document = json.loads(data.decode("utf-8"))
+                document["packDigest"] = "sha256:short"
+                data = json.dumps(document).encode("utf-8")
+                info = support.file_info(info.name, len(data))
+            entries.append((info, data))
+        archive = support.tar_gz(entries, self.root / "schema-bad.tar.gz")
+        result = verify.verify_archive(archive)
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("does not conform" in p for p in result.problems), result.problems
+        )
+
+    def test_a_registry_with_a_wrong_pack_digest_is_reported(self) -> None:
+        entries = []
+        for info, data in support.valid_members(self.root / "src"):
+            if info.name == "registry.json":
+                document = json.loads(data.decode("utf-8"))
+                document["packDigest"] = "sha256:" + "0" * 64
+                data = json.dumps(document).encode("utf-8")
+                info = support.file_info(info.name, len(data))
+            entries.append((info, data))
+        archive = support.tar_gz(entries, self.root / "wrong-digest.tar.gz")
+        result = verify.verify_archive(archive)
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("declares packDigest" in p for p in result.problems), result.problems
+        )
+
+    def test_a_malformed_manifest_is_unreadable(self) -> None:
+        archive = self.valid_archive()
+        bad_json = self.root / "bad.json"
+        bad_json.write_text("{not json", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(verify.main([str(archive), "--manifest", str(bad_json)]), 2)
+        self.assertIn("cannot use manifest", err.getvalue())
+
+        not_object = self.root / "array.json"
+        not_object.write_text("[]", encoding="utf-8")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(verify.main([str(archive), "--manifest", str(not_object)]), 2)
+
+        missing_key = self.root / "missing-key.json"
+        missing_key.write_text('{"archive": {"sha256": "aa"}}', encoding="utf-8")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                verify.main([str(archive), "--manifest", str(missing_key)]), 2
+            )
+
+    def test_module_entry_point_exits_zero_on_success(self) -> None:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(support.REPO_ROOT / "tools" / "pack" / "verify_archive.py"),
+                str(self.valid_archive()),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("OK:", run.stdout)
+
+    def test_module_entry_point_exits_two_on_an_unreadable_archive(self) -> None:
+        run = subprocess.run(
+            [
+                sys.executable,
+                str(support.REPO_ROOT / "tools" / "pack" / "verify_archive.py"),
+                str(self.root / "absent.tar.gz"),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("error:", run.stderr)
+
+    def test_module_main_guard_runs_in_process(self) -> None:
+        import runpy
+
+        argv = sys.argv
+        sys.argv = ["verify_archive.py", str(self.valid_archive())]
+        self.addCleanup(setattr, sys, "argv", argv)
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                runpy.run_path(
+                    str(support.REPO_ROOT / "tools" / "pack" / "verify_archive.py"),
+                    run_name="__main__",
+                )
+        self.assertEqual(caught.exception.code, 0)
 
 
 if __name__ == "__main__":

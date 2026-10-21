@@ -158,6 +158,37 @@ def _string_list_field(key: str) -> Callable[[dict], list[str]]:
     return extract
 
 
+def _soroban_argument_kinds(data: dict) -> list[str]:
+    """Every ``[[args]].kind`` in a fixture, including nested vec/map entries.
+
+    A nested argument is still a fixture's use of a kind, so the recursive
+    walk counts it; only the shape canary-soroban parses is followed.
+    """
+    values: list[str] = []
+
+    def walk(entry: object) -> None:
+        if not isinstance(entry, dict):
+            return
+        kind = entry.get("kind")
+        if isinstance(kind, str):
+            values.append(kind)
+        value = entry.get("value")
+        if kind == "vec" and isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif kind == "map" and isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    walk(item.get("key"))
+                    walk(item.get("value"))
+
+    args = data.get("args")
+    if isinstance(args, list):
+        for entry in args:
+            walk(entry)
+    return values
+
+
 # How each known capability constant is counted: which field of a fixture
 # uses a value of it. A constant with no rule here is still reported (with
 # structural zeros) and named in ``unmapped_capabilities`` -- never guessed
@@ -171,6 +202,7 @@ CAPABILITY_EXTRACTORS: dict[str, Callable[[dict], list[str]]] = {
     "RPC_ASSERT_KINDS": _table_list_field("assert", "kind"),
     "RPC_ASSERT_TYPES": _table_list_field("assert", "expected_type"),
     "SOROBAN_EXPECT_KINDS": _nested_field("expect", "kind"),
+    "SOROBAN_ARG_KINDS": _soroban_argument_kinds,
     "CAPABILITIES": _string_list_field("required_capabilities"),
 }
 

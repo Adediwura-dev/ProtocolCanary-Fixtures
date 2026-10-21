@@ -1,0 +1,157 @@
+# Weekly engine-drift canary (#331): build StellarCanary/Protocol-Canary's
+# `main` and run this repository's protocol-28 pack against it, so a change on
+# the engine side that starts rejecting or reinterpreting the fixtures is
+# noticed in the week it merges rather than at release time.
+#
+# Non-blocking by design:
+#   - the workflow only runs on the weekly schedule or on manual dispatch --
+#     never on pull requests or pushes -- so it cannot gate a merge, and it
+#     must stay out of this repository's required checks;
+#   - `permissions` is read-only and no secrets are used.
+#
+# Network access is limited to cloning the two repositories and the crates.io
+# fetch performed by `cargo build --release --locked`.
+#
+# Every action below is pinned to a full commit SHA (with the release tag in a
+# trailing comment), matching .github/workflows/validate.yml. Dependabot
+# (.github/dependabot.yml) keeps those SHAs current.
+
+name: engine-drift
+
+on:
+  schedule:
+    # Weekly, Monday 05:17 UTC. Offset from the hour (validate.yml uses 06:00)
+    # to avoid the top-of-hour GitHub Actions scheduler congestion.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      engine_ref:
+        description: "Protocol-Canary branch or tag to build (default: main)"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  engine-drift:
+    runs-on: ubuntu-latest
+    # `inputs` is empty on schedule events, so the expression resolves to
+    # `main` there and to the dispatch input on a manual run.
+    env:
+      ENGINE_REF: ${{ inputs.engine_ref || 'main' }}
+    steps:
+      - name: Check out the fixture pack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the engine ref
+        # Resolve the ref before checking it out so a ref that does not exist
+        # fails with a message that names it, instead of a generic checkout
+        # error. `git ls-remote` is part of cloning (the same host and
+        # transport a checkout uses), so no additional network access is
+        # introduced beyond cloning and building.
+        run: |
+          set -euo pipefail
+          url=https://github.com/StellarCanary/Protocol-Canary.git
+          found=$(git ls-remote "$url" "refs/heads/$ENGINE_REF" "refs/tags/$ENGINE_REF")
+          if [ -z "$found" ]; then
+            echo "::error title=Engine ref not found::StellarCanary/Protocol-Canary has no branch or tag named '$ENGINE_REF'. Nothing was built; fix the workflow_dispatch input (or the schedule's default of 'main') and run again."
+            exit 1
+          fi
+          echo "Resolved '$ENGINE_REF' in StellarCanary/Protocol-Canary."
+
+      - name: Check out Protocol-Canary
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: StellarCanary/Protocol-Canary
+          ref: ${{ inputs.engine_ref || 'main' }}
+          path: engine
+          persist-credentials: false
+
+      - name: Record context and commands in the job summary
+        id: context
+        run: |
+          set -euo pipefail
+          commit=$(git -C engine rev-parse HEAD)
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Engine drift check"
+            echo
+            echo "- Engine: \`StellarCanary/Protocol-Canary\`, ref \`$ENGINE_REF\`"
+            echo "- Engine commit: \`$commit\`"
+            echo "- Fixture pack commit: \`${GITHUB_SHA}\`"
+            echo
+            echo "### Commands run"
+            echo
+            echo '```'
+            echo 'cargo build --release --locked'
+            echo 'stellar-canary fixtures --fixtures-dir protocol-28 --protocol 28'
+            echo 'stellar-canary check --fixtures-dir protocol-28 --protocol 28 --json --no-cache'
+            echo '# run from a throwaway project whose .stellar-canary.toml enables'
+            echo '# only the offline XDR surface: xdr = true, rpc = false, soroban = false'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build Protocol-Canary
+        working-directory: engine
+        # The engine's rust-toolchain.toml pins the toolchain (rustup installs
+        # it on first use), and --locked builds exactly the committed
+        # Cargo.lock, so the binary matches the recorded commit.
+        run: cargo build --release --locked
+
+      - name: Run the pack against the freshly built engine
+        run: |
+          set -euo pipefail
+          engine="$GITHUB_WORKSPACE/engine/target/release/stellar-canary"
+          pack="$GITHUB_WORKSPACE/protocol-28"
+          # Throwaway project with only the offline XDR surface enabled --
+          # the same setup as the engine's scripts/check-canonical-pack.sh,
+          # so nothing here reaches the network and no repository file is
+          # written.
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf 'version = 1\nprotocol = 28\n\n[tests]\nxdr = true\nrpc = false\nsoroban = false\n' > "$work/.stellar-canary.toml"
+          cd "$work"
+
+          echo "+ stellar-canary fixtures --fixtures-dir protocol-28 --protocol 28"
+          "$engine" fixtures --fixtures-dir "$pack" --protocol 28 > listing.txt
+          echo "listed $(wc -l < listing.txt) lines"
+
+          echo "+ stellar-canary check --fixtures-dir protocol-28 --protocol 28 --json --no-cache"
+          "$engine" check --fixtures-dir "$pack" --protocol 28 --json --no-cache > report.json
+
+          python3 - <<'PY'
+          import json
+          import sys
+
+          report = json.load(open("report.json"))
+          counts = report["counts"]
+          if report["status"] != "pass":
+              sys.exit(f"offline check status is {report['status']!r}, expected 'pass': {counts}")
+          if counts["failed"] or counts["errors"]:
+              sys.exit(f"offline check reported failures: {counts}")
+          if counts["total"] < 1:
+              sys.exit(f"no fixtures executed: {counts}")
+          bad = [r for r in report["results"] if r["surface"] != "xdr"]
+          if bad:
+              sys.exit(f"only the offline XDR surface should run, got: {bad[:3]}")
+          print(f"ok: {counts}")
+          PY
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          {
+            echo "### :x: Engine drift check FAILED"
+            echo
+            echo "- Requested engine ref: \`$ENGINE_REF\`"
+            if [ -n "${{ steps.context.outputs.commit }}" ]; then
+              echo "- Engine commit: \`${{ steps.context.outputs.commit }}\`"
+            else
+              echo "- Engine commit: unknown (Protocol-Canary was not checked out)"
+            fi
+            echo "- Fixture pack commit: \`${GITHUB_SHA}\`"
+            echo "- Failing command: see the failed step's log above."
+          } >> "$GITHUB_STEP_SUMMARY"

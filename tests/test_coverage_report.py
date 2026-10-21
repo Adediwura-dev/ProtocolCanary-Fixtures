@@ -265,6 +265,26 @@ EXPECTED_EXAMPLE_REPORT = {
             "string": 0,
         },
         "RPC_METHODS": {"get-network": 1, "get-latest-ledger": 1},
+        "SOROBAN_ARG_KINDS": {
+            "address": 0,
+            "bool": 0,
+            "bytes": 0,
+            "duration": 0,
+            "i128": 0,
+            "i256": 0,
+            "i32": 0,
+            "i64": 0,
+            "map": 0,
+            "string": 0,
+            "symbol": 0,
+            "timepoint": 0,
+            "u128": 0,
+            "u256": 0,
+            "u32": 0,
+            "u64": 0,
+            "vec": 0,
+            "void": 0,
+        },
         "SOROBAN_EXPECT_KINDS": {"simulation-error": 1, "simulation-success": 1},
         "SURFACES": {"rpc": 2, "soroban": 2, "xdr": 3},
         "XDR_KINDS": {
@@ -273,7 +293,13 @@ EXPECTED_EXAMPLE_REPORT = {
             "roundtrip": 1,
             "encode-equals": 0,
         },
-        "XDR_TYPES": {"ContractExecutable": 2, "ScVal": 0, "StellarValue": 1},
+        "XDR_TYPES": {
+            "ContractExecutable": 2,
+            "LedgerEntry": 0,
+            "ScVal": 0,
+            "StellarValue": 1,
+            "TransactionEnvelope": 0,
+        },
     },
     "caps": {"cap-0083": 1, "cap-0085": 1},
     "invalid": {"count": 0, "files": []},
@@ -316,6 +342,26 @@ RPC_METHODS
   get-latest-ledger    1
   get-network          1
 
+SOROBAN_ARG_KINDS
+  address      0  no fixture
+  bool         0  no fixture
+  bytes        0  no fixture
+  duration     0  no fixture
+  i128         0  no fixture
+  i256         0  no fixture
+  i32          0  no fixture
+  i64          0  no fixture
+  map          0  no fixture
+  string       0  no fixture
+  symbol       0  no fixture
+  timepoint    0  no fixture
+  u128         0  no fixture
+  u256         0  no fixture
+  u32          0  no fixture
+  u64          0  no fixture
+  vec          0  no fixture
+  void         0  no fixture
+
 SOROBAN_EXPECT_KINDS
   simulation-error      1
   simulation-success    1
@@ -332,9 +378,11 @@ XDR_KINDS
   roundtrip         1
 
 XDR_TYPES
-  ContractExecutable    2
-  ScVal                 0  no fixture
-  StellarValue          1
+  ContractExecutable     2
+  LedgerEntry            0  no fixture
+  ScVal                  0  no fixture
+  StellarValue           1
+  TransactionEnvelope    0  no fixture
 
 CAP categories
   cap-0083    1
@@ -407,7 +455,7 @@ class ExamplePackTests(unittest.TestCase):
 
     def test_zero_counts_are_marked_no_fixture(self) -> None:
         text = coverage_report.render_text(self.report)
-        self.assertIn("  ScVal                 0  no fixture\n", text)
+        self.assertIn("  ScVal                  0  no fixture\n", text)
         self.assertIn("  encode-equals     0  no fixture\n", text)
         self.assertIn("  string    0  no fixture\n", text)
         # A used capability carries no marker.

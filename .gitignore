@@ -6,3 +6,9 @@ venv/
 
 # Release archives built by tools/pack/pack.py
 dist/
+
+# Coverage data from `coverage run` / `make coverage` (dev tool, see
+# CONTRIBUTING.md "Coverage")
+.coverage
+.coverage.*
+htmlcov/

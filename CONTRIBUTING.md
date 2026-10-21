@@ -246,7 +246,7 @@ Per-surface body (everything else in the file):
 |---|---|
 | `xdr` | `type` (currently `"StellarValue"`, `"ContractExecutable"` or `"ScVal"`), `kind` (`"decode-success"` \| `"decode-failure"` \| `"roundtrip"` \| `"encode-equals"`), `value_base64`, `expected_base64` (only for `encode-equals`) |
 | `rpc` | `method` (`"get-network"` \| `"get-latest-ledger"`), one or more `[[assert]]` tables (`{kind, field, value?, expected_type?}`) |
-| `soroban` | `source_account`, `contract_id`, `function`, `sequence_number`, optional `[[args]]`, `[expect]` (`{kind = "simulation-success"}` or `{kind = "simulation-error", message_contains?}`) |
+| `soroban` | `source_account`, `contract_id`, `function`, `sequence_number`, optional `[[args]]` tables (`{kind, value?}`; kinds `"bool"`, `"u32"`, `"i32"`, `"u64"`, `"i64"`, `"i128"`, `"u128"`, `"i256"`, `"u256"`, `"void"`, `"duration"`, `"timepoint"`, `"symbol"`, `"string"`, `"bytes"`, `"address"`, `"vec"`, `"map"`; `void` omits `value`, `vec`/`map` nest at most 8 levels), `[expect]` (`{kind = "simulation-success"}` or `{kind = "simulation-error", message_contains?}`) |
 
 ### Unknown top-level fields
 
@@ -401,10 +401,78 @@ For convenience, a `Makefile` wraps the commands CI runs:
 - `make badge-check` — fails if that badge is stale.
 - `make test` — the repository test suite.
 - `make check-links` — check fixture source reference links across all packs.
+- `make coverage` — the test suite under branch coverage of `tools/`, failing
+  below `.coveragerc`'s threshold. Needs the development-only dependency
+  `pip install coverage==7.16.2` (CI installs that exact version), so it is
+  the one target not included in `make check`.
 - `make check` — all of them, in CI's order, stopping at the first failure.
 
 The underlying commands work identically if run directly, so `make` is
 not a requirement for contributing — it only saves typing.
+
+## Coverage
+
+CI measures branch coverage of the Python tools on one operating system
+(`ubuntu-latest`, the `coverage` job in `.github/workflows/validate.yml`) so
+the number stays comparable between runs. The configuration lives in
+`.coveragerc`:
+
+- `branch = true`, `source = tools` — branch coverage of everything under
+  `tools/`;
+- `fail_under = 95` — CI fails when the total drops below this. It sits a few
+  points under the **97.53% baseline measured on 2026-10-20** (after the tests
+  added for #335); the comment at the top of `.coveragerc` records the exact
+  measurement command and commit.
+
+The job appends the per-file `coverage report -m` table to the job summary and
+fails below the threshold. To run exactly what CI runs:
+
+```bash
+pip install coverage==7.16.2
+coverage run --branch --source=tools -m unittest discover tests
+coverage report -m   # exits non-zero when below .coveragerc's fail_under
+```
+
+or simply `make coverage`. `coverage` is a development tool only: the test
+suite itself has no third-party dependencies and must keep working without it.
+When the baseline is deliberately raised, update `fail_under` and the baseline
+comment in `.coveragerc` in the same change.
+
+## Weekly engine-drift check
+
+`.github/workflows/engine-drift.yml` builds `StellarCanary/Protocol-Canary`'s
+`main` and runs this repository's `protocol-28` pack against the freshly built
+`stellar-canary`, so an engine-side loading change that starts rejecting or
+reinterpreting the fixtures is caught in the week it merges rather than at
+release time (#331). It runs
+
+- weekly (Mondays 05:17 UTC) via `schedule`, and
+- on demand via `workflow_dispatch`, with an optional `engine_ref` input
+  naming the Protocol-Canary branch or tag to build (default `main`).
+
+It never runs on pull requests or pushes, holds read-only permissions, uses no
+secrets, and is deliberately **not** a required check — a red engine-drift run
+is a signal to investigate, not a merge blocker. The job summary records the
+engine commit that was built and the exact commands that were run; on failure
+it names the requested ref and, when available, the engine commit. Every
+action in the workflow is pinned to a full commit SHA.
+
+To lint the workflow: `actionlint .github/workflows/engine-drift.yml`.
+To reproduce what it runs locally:
+
+```bash
+git clone --depth 1 https://github.com/StellarCanary/Protocol-Canary.git /tmp/protocol-canary
+(cd /tmp/protocol-canary && cargo build --release --locked)
+pack=$PWD/protocol-28
+work=$(mktemp -d) && cd "$work"
+printf 'version = 1\nprotocol = 28\n\n[tests]\nxdr = true\nrpc = false\nsoroban = false\n' > .stellar-canary.toml
+/tmp/protocol-canary/target/release/stellar-canary fixtures --fixtures-dir "$pack" --protocol 28
+/tmp/protocol-canary/target/release/stellar-canary check --fixtures-dir "$pack" --protocol 28 --json --no-cache
+```
+
+The XDR-only `.stellar-canary.toml` mirrors the engine's own
+`scripts/check-canonical-pack.sh`: only the offline surface executes, so the
+run needs no network beyond cloning and building.
 
 ## Checking fixture source reference links
 

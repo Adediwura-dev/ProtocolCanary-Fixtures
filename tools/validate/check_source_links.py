@@ -304,6 +304,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     if args.roots:
         scan_paths = [Path(r) for r in args.roots]
+        for scan_path in scan_paths:
+            if not scan_path.exists():
+                sys.stderr.write(f"Error: root does not exist: {scan_path}\n")
+                return 2
+            if not scan_path.is_dir() and not (
+                scan_path.is_file() and scan_path.suffix == ".toml"
+            ):
+                sys.stderr.write(
+                    f"Error: root must be a directory or .toml file: {scan_path}\n"
+                )
+                return 2
     else:
         scan_paths = sorted(p for p in repo_root.glob("protocol-*") if p.is_dir())
         if not scan_paths:
@@ -312,6 +323,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     fixture_files: list[Path] = []
     for sp in scan_paths:
         fixture_files.extend(find_fixture_files(sp))
+
+    if args.roots and not fixture_files:
+        roots = ", ".join(str(path) for path in scan_paths)
+        sys.stderr.write(f"Error: no .toml fixture files found in explicit roots: {roots}\n")
+        return 2
 
     # Remove duplicates while preserving order
     unique_files: list[Path] = []
