@@ -587,12 +587,17 @@ Protocol 29 coverage is developed separately and only from real evidence; see
 For a concise index of the fixtures in this pack, see [`protocol-28/README.md`](../protocol-28/README.md).
 
 ```bash
-stellar-canary check --fixtures-dir <checkout-of-this-repo>/protocol-28 --json
-# or, scanning every protocol pack in the repository at once:
-stellar-canary check --fixtures-dir <checkout-of-this-repo> --protocol 28 --json
+stellar-canary check --fixtures-dir <path-to-this-repo>/protocol-28 --json
 ```
 
-Both were run on 2026-09-02 against a local `Protocol-Canary` build and
+The `--fixtures-dir` argument must point at the `protocol-28/` pack directory,
+not at the repository root. The repository root contains test vectors under
+`tests/vectors/` (some deliberately invalid) that the loader would attempt to
+parse as fixtures, causing the run to fail. See the top-level README.md
+"Repository relationship" section for details.
+
+This command was run on 2026-09-02 against a local `Protocol-Canary` build
+(commit `1ff7908`, `stellar-canary 0.1.1`) with `--offline --no-cache` and
 passed for every fixture in the pack as it stood then, confirming this pack
 is consumable exactly as documented in `Protocol-Canary`'s
 `docs/fixture-contract.md`. This record is deliberately not tied to a

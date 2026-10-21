@@ -189,16 +189,22 @@ retrofitted by guesswork.
 
 A fixture's `protocol` field declares which protocol pack it belongs to.
 When a consumer runs with a protocol filter — for example
-`stellar-canary check --fixtures-dir <checkout> --protocol 28 --json` — every
+`stellar-canary check --fixtures-dir <protocol-NN-directory> --protocol 28 --json` — every
 fixture whose `protocol` does not equal the requested value is **skipped,
 not failed**. This matches `schemas/fixture-v1.schema.json`'s `protocol`
 description verbatim: "A run whose `--protocol` does not match is skipped,
 not failed."
 
+The `--fixtures-dir` argument must point at a `protocol-NN/` pack directory
+(e.g. `protocol-28/`), not at the repository root. The repository root
+contains test vectors under `tests/vectors/` (some deliberately invalid) that
+the loader would attempt to parse as fixtures, causing the run to fail.
+See README.md "Repository relationship" for details.
+
 Once this repository holds more than one populated protocol pack (see the
-`protocol-27/` pack, expected to be populated eventually), that has a
-practical consequence for CI: a run scoped with `--protocol` over the whole
-repository reports fewer fixtures than the tree contains, and a mostly
+`protocol-27/` pack, expected to be populated eventually), a run scoped with
+`--protocol` over a staging directory containing multiple `protocol-NN/`
+directories reports fewer fixtures than the tree contains, and a mostly
 skipped run is **not** a validation failure. Do not read a low fixture count
 under `--protocol` filtering as something being wrong with the fixtures.
 `tools/validate/validate.py` itself does not filter by protocol — it
