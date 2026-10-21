@@ -66,7 +66,7 @@ data.
 exposed via:
 
 ```bash
-stellar-canary check --fixtures-dir <path-to-a-checkout-of-this-repo> --json
+stellar-canary check --fixtures-dir <path-to-a-protocol-NN-directory> --json
 ```
 
 The loader recursively walks the given directory and parses **every**
@@ -87,9 +87,14 @@ layout:
   and `category` fields — not its file path — are what the loader and the
   planner act on.
 
-You can point `--fixtures-dir` at this repository's root, or at a single
-`protocol-NN/` directory to scope one pack; the loader's protocol filtering
-makes a mixed-protocol directory safe either way.
+**The `--fixtures-dir` argument must point at a `protocol-NN/` pack directory
+(e.g. `protocol-28/`), not at the repository root.** The repository root
+contains test vectors under `tests/vectors/` (some deliberately invalid) that
+the loader would attempt to parse as fixtures, causing the run to fail.
+Pointing at a pack directory avoids this because only that pack's fixtures
+are discovered. If you need to test multiple protocol packs together, create
+a staging directory containing only the desired `protocol-NN/` directories;
+the loader's protocol filtering (`--protocol`) then selects which to run.
 
 Interfaces shared with the other two repositories (registry and digest,
 verification evidence, fixture releases) are specified in
