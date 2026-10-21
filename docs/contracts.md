@@ -63,3 +63,29 @@ Checked against `main` at `828b41c` on 2026-10-09:
   maintainers.
 - Verification dates exist only as prose in fixture header comments and in
   `docs/protocol-28.md`.
+
+## Vocabulary the validator mirrors from the engine
+
+The validator and schema are structural mirrors, not independent
+specifications; the authoritative lists live in `Protocol-Canary`. Two of
+them are closed vocabularies that contributors hit first:
+
+- **XDR `type` names (F-050).** `tools/validate/validate.py` accepts exactly
+  the five names `crates/canary-xdr/src/decoder.rs` decodes — `StellarValue`,
+  `ContractExecutable`, `ScVal`, `TransactionEnvelope`, `LedgerEntry` — as
+  read at Protocol-Canary commit
+  `9b3fefcacde3de03b3cb34bfea4d47124ebc4d82`.
+- **Soroban `[[args]]` (F-051).** Each entry is one closed `{ kind, value }`
+  table. The accepted `kind` values (`bool`, `u32`, `i32`, `u64`, `i64`,
+  `i128`, `u128`, `i256`, `u256`, `void`, `duration`, `timepoint`, `symbol`,
+  `string`, `bytes`, `address`, `vec`, `map`) and the value shape for each
+  mirror `parse_arg_at` in `crates/canary-soroban/src/runner.rs`. Nested
+  `vec`/`map` containers are limited to `MAX_ARG_DEPTH = 8`, the constant in
+  `crates/canary-soroban/src/builder.rs`; `void` is the only kind that may
+  omit `value`.
+
+`tools/validate/schema_sync.py` keeps the validator and
+[`schemas/fixture-v1.schema.json`](../schemas/fixture-v1.schema.json) in
+agreement on these lists, and `tests/test_validate.py` pins both, so a
+vocabulary change has to land in the validator, the schema and the tests in
+one change.

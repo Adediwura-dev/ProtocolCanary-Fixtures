@@ -439,17 +439,43 @@ class ValidatorTests(unittest.TestCase):
         self.assertTrue(any("'kind'" in e for e in report.errors))
 
     def test_rejects_xdr_type_not_in_xdr_types(self) -> None:
-        bad = VALID_XDR.replace('type = "StellarValue"', 'type = "LedgerEntry"')
-        report = self.run_validation({"a.toml": bad})
-        self.assertTrue(
-            any(
-                "LedgerEntry" in e
-                and "StellarValue" in e
-                and "ContractExecutable" in e
-                and "ScVal" in e
-                for e in report.errors
-            )
+        bad = VALID_XDR.replace(
+            'type = "StellarValue"', 'type = "TransactionEnvelopeV2"'
         )
+        report = self.run_validation({"a.toml": bad})
+        matching = [e for e in report.errors if "TransactionEnvelopeV2" in e]
+        self.assertTrue(matching, report.errors)
+        for supported in validate.XDR_TYPES:
+            self.assertIn(supported, matching[0])
+
+    def test_accepts_each_new_xdr_type_for_every_kind(self) -> None:
+        # F-050 (issue #324): canary-xdr decodes TransactionEnvelope and
+        # LedgerEntry, so every XDR assertion kind must be accepted for both.
+        for type_name in ("TransactionEnvelope", "LedgerEntry"):
+            for kind in sorted(validate.XDR_KINDS):
+                with self.subTest(type=type_name, kind=kind):
+                    fixture = VALID_XDR.replace(
+                        'type = "StellarValue"', f'type = "{type_name}"'
+                    ).replace('kind = "decode-success"', f'kind = "{kind}"')
+                    if kind == "encode-equals":
+                        fixture += 'expected_base64 = "AAAAAA=="\n'
+                    report = self.run_validation({"a.toml": fixture})
+                    self.assertEqual(report.errors, [])
+
+    def test_rejects_misspelled_lowercase_and_empty_xdr_type(self) -> None:
+        # F-050 negative testing: the type is matched exactly, so a
+        # misspelling, a lower-case name and an empty string all fail with the
+        # list of allowed types in the message.
+        for bad_type in ("TransactionEnvelopeV2", "transactionenvelope", ""):
+            with self.subTest(type=bad_type):
+                bad = VALID_XDR.replace(
+                    'type = "StellarValue"', f'type = "{bad_type}"'
+                )
+                report = self.run_validation({"a.toml": bad})
+                matching = [e for e in report.errors if "field 'type' must be one of" in e]
+                self.assertTrue(matching, report.errors)
+                for supported in validate.XDR_TYPES:
+                    self.assertIn(supported, matching[0])
 
     def test_accepts_scval_xdr_type(self) -> None:
         # F-016 (issue #281): canary-xdr supports ScVal, so the validator
@@ -1000,12 +1026,238 @@ field = "error"
                     f"got: {report.errors}",
                 )
 
-    def test_accepts_array_args(self) -> None:
+    def test_accepts_an_array_of_arg_tables(self) -> None:
         good = VALID_SOROBAN.replace(
-            "sequence_number = 1", 'sequence_number = 1\nargs = ["name"]'
+            "sequence_number = 1",
+            'sequence_number = 1\nargs = [{ kind = "symbol", value = "name" }]',
         )
         report = self.run_validation({"a.toml": good})
         self.assertEqual(report.errors, [])
+
+    # --- F-051 (issue #325): Soroban [[args]] entries ---------------------
+
+    # One valid argument table body per supported kind. The bodies are
+    # appended after "[[args]]" by _soroban_with_args().
+    VALID_ARG_BODIES = {
+        "void": 'kind = "void"',
+        "bool": 'kind = "bool"\nvalue = true',
+        "u32": 'kind = "u32"\nvalue = 42',
+        "i32": 'kind = "i32"\nvalue = -42',
+        "u64": 'kind = "u64"\nvalue = 1000000000',
+        "i64": 'kind = "i64"\nvalue = -1000000000',
+        "u128": 'kind = "u128"\nvalue = "340282366920938463463374607431768211455"',
+        "i128": 'kind = "i128"\nvalue = "-170141183460469231731687303715884105728"',
+        "u256": 'kind = "u256"\nvalue = "0x'
+        + "f" * 64
+        + '"',
+        "i256": 'kind = "i256"\nvalue = '
+        '"-57896044618658097711785492504343953926634992332820282019728792003956564819968"',
+        "duration": 'kind = "duration"\nvalue = 86400',
+        "timepoint": 'kind = "timepoint"\nvalue = 1729166400',
+        "symbol": 'kind = "symbol"\nvalue = "transfer"',
+        "string": 'kind = "string"\nvalue = "Hello, Stellar"',
+        "bytes-hex": 'kind = "bytes"\nvalue = "0xdeadbeefcafe"',
+        "bytes-base64": 'kind = "bytes"\nvalue = "3q2+7w=="',
+        "address-account": 'kind = "address"\nvalue = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"',
+        "address-contract": 'kind = "address"\nvalue = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"',
+        "vec": 'kind = "vec"\nvalue = [{ kind = "u32", value = 1 }]',
+        "map": 'kind = "map"\nvalue = [{ key = { kind = "symbol", value = "k" }, '
+        'value = { kind = "u32", value = 1 } }]',
+    }
+
+    # One invalid argument body per kind, plus the structural errors the
+    # acceptance criteria call out. The expected fragment makes each message
+    # precise enough to pin the reason, not merely that an error was emitted.
+    INVALID_ARG_BODIES = {
+        "bool given as a string": ('kind = "bool"\nvalue = "true"', "must be a boolean"),
+        "u32 negative": ('kind = "u32"\nvalue = -1', "outside the allowed range"),
+        "i32 above maximum": ('kind = "i32"\nvalue = 2147483648', "outside the allowed range"),
+        "u64 negative": ('kind = "u64"\nvalue = -1', "outside the allowed range"),
+        "i64 given as a string": ('kind = "i64"\nvalue = "1"', "must be an integer"),
+        "u128 above maximum": (
+            'kind = "u128"\nvalue = "340282366920938463463374607431768211456"',
+            "above the maximum",
+        ),
+        "i128 below minimum": (
+            'kind = "i128"\nvalue = "-170141183460469231731687303715884105729"',
+            "below the minimum",
+        ),
+        "u256 above maximum": (
+            'kind = "u256"\nvalue = "0x1' + "0" * 64 + '"',
+            "above the maximum",
+        ),
+        "i256 below minimum": (
+            'kind = "i256"\nvalue = "-0x8' + "0" * 62 + '1"',
+            "below the minimum",
+        ),
+        "u128 decimal with underscores": (
+            'kind = "u128"\nvalue = "1_000"',
+            "decimal or 0x-prefixed hex",
+        ),
+        "duration negative": ('kind = "duration"\nvalue = -1', "non-negative"),
+        "timepoint negative": ('kind = "timepoint"\nvalue = -1', "non-negative"),
+        "symbol with a space": (
+            'kind = "symbol"\nvalue = "not a symbol"',
+            "at most 32 characters",
+        ),
+        "symbol too long": (
+            'kind = "symbol"\nvalue = "' + "a" * 33 + '"',
+            "at most 32 characters",
+        ),
+        "string given as an integer": ('kind = "string"\nvalue = 1', "must be a string"),
+        "bytes odd-length hex": (
+            'kind = "bytes"\nvalue = "0xabc"',
+            "odd number of digits",
+        ),
+        "bytes non-hex with prefix": (
+            'kind = "bytes"\nvalue = "0xzz"',
+            "outside 0-9a-fA-F",
+        ),
+        "bytes non-canonical base64": (
+            'kind = "bytes"\nvalue = "AB=="',
+            "unused trailing bits",
+        ),
+        "bytes invalid base64": (
+            'kind = "bytes"\nvalue = "!!!!"',
+            "outside the standard alphabet",
+        ),
+        "address secret seed": (
+            'kind = "address"\nvalue = "SBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"',
+            "must not be a secret seed",
+        ),
+        "address malformed": (
+            'kind = "address"\nvalue = "not-an-address"',
+            "56-character G...",
+        ),
+        "vec given a string": ('kind = "vec"\nvalue = "nope"', "must be an array"),
+        "map given a string": ('kind = "map"\nvalue = "nope"', "must be an array"),
+        "map entry missing its key": (
+            'kind = "map"\nvalue = [{ value = { kind = "u32", value = 1 } }]',
+            "missing its 'key'",
+        ),
+        "map entry missing its value": (
+            'kind = "map"\nvalue = [{ key = { kind = "u32", value = 1 } }]',
+            "missing its 'value'",
+        ),
+        "nested vec has an unknown key": (
+            'kind = "vec"\nvalue = [{ kind = "u32", value = 1, extra = 2 }]',
+            "unexpected key(s) 'extra'",
+        ),
+    }
+
+    @staticmethod
+    def _soroban_with_args(args_text: str) -> str:
+        return VALID_SOROBAN.replace(
+            "sequence_number = 1",
+            "sequence_number = 1\n\n" + args_text,
+        )
+
+    @staticmethod
+    def _nested_vec(levels: int) -> str:
+        expression = '{ kind = "u32", value = 1 }'
+        for _ in range(levels):
+            expression = '{ kind = "vec", value = [' + expression + '] }'
+        return expression
+
+    @staticmethod
+    def _nested_map(levels: int) -> str:
+        expression = '{ kind = "u32", value = 1 }'
+        for _ in range(levels):
+            expression = (
+                '{ kind = "map", value = [{ key = { kind = "u32", value = 0 }, '
+                "value = " + expression + " }] }"
+            )
+        return expression
+
+    def test_accepts_every_supported_arg_kind(self) -> None:
+        for name, body in self.VALID_ARG_BODIES.items():
+            with self.subTest(kind=name):
+                fixture = self._soroban_with_args("[[args]]\n" + body + "\n")
+                report = self.run_validation({"a.toml": fixture})
+                self.assertEqual(report.errors, [], f"valid {name} argument rejected")
+
+    def test_accepts_a_void_arg_with_an_ignored_value(self) -> None:
+        # parse_arg_at returns Void before reading a value, so a present value
+        # is ignored rather than rejected.
+        fixture = self._soroban_with_args(
+            '[[args]]\nkind = "void"\nvalue = "ignored"\n'
+        )
+        report = self.run_validation({"a.toml": fixture})
+        self.assertEqual(report.errors, [])
+
+    def test_rejects_each_malformed_arg_with_a_precise_message(self) -> None:
+        for name, (body, fragment) in self.INVALID_ARG_BODIES.items():
+            with self.subTest(case=name):
+                fixture = self._soroban_with_args("[[args]]\n" + body + "\n")
+                report = self.run_validation({"a.toml": fixture})
+                matching = [e for e in report.errors if fragment in e]
+                self.assertTrue(
+                    matching,
+                    f"expected {fragment!r} for {name}, got: {report.errors}",
+                )
+                # Every argument diagnostic names the argument index.
+                self.assertTrue(
+                    any("args[0]" in e for e in report.errors),
+                    f"diagnostic does not name args[0]: {report.errors}",
+                )
+
+    def test_rejects_an_unknown_arg_kind_with_the_supported_list(self) -> None:
+        fixture = self._soroban_with_args(
+            '[[args]]\nkind = "f64"\nvalue = 1.5\n'
+        )
+        report = self.run_validation({"a.toml": fixture})
+        matching = [e for e in report.errors if "args[0].kind" in e]
+        self.assertTrue(matching, report.errors)
+        for kind in validate.SOROBAN_ARG_KINDS:
+            self.assertIn(kind, matching[0])
+
+    def test_rejects_an_arg_with_an_unknown_key(self) -> None:
+        fixture = self._soroban_with_args(
+            '[[args]]\nkind = "u32"\nvalue = 1\nextra = true\n'
+        )
+        report = self.run_validation({"a.toml": fixture})
+        self.assertTrue(
+            any("args[0]" in e and "'extra'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_rejects_a_non_void_arg_missing_its_value(self) -> None:
+        fixture = self._soroban_with_args('[[args]]\nkind = "u32"\n')
+        report = self.run_validation({"a.toml": fixture})
+        self.assertTrue(
+            any("args[0]" in e and "missing its 'value'" in e for e in report.errors),
+            report.errors,
+        )
+
+    def test_accepts_vec_map_nesting_at_the_limit(self) -> None:
+        fixture = self._soroban_with_args(
+            "args = [" + self._nested_vec(validate.MAX_ARG_DEPTH) + "]\n"
+        )
+        report = self.run_validation({"a.toml": fixture})
+        self.assertEqual(report.errors, [])
+
+    def test_rejects_vec_map_nesting_one_level_past_the_limit(self) -> None:
+        for name, builder in (
+            ("vec", self._nested_vec),
+            ("map", self._nested_map),
+        ):
+            with self.subTest(container=name):
+                fixture = self._soroban_with_args(
+                    "args = ["
+                    + builder(validate.MAX_ARG_DEPTH + 1)
+                    + "]\n"
+                )
+                report = self.run_validation({"a.toml": fixture})
+                matching = [
+                    e for e in report.errors if "nested deeper than the limit" in e
+                ]
+                self.assertTrue(matching, report.errors)
+                self.assertIn(str(validate.MAX_ARG_DEPTH), matching[0])
+
+    def test_existing_protocol_28_soroban_fixtures_still_validate(self) -> None:
+        report = validate.validate_directory(REPO_ROOT / "protocol-28")
+        self.assertEqual(report.errors, [])
+
     def test_soroban_fixture_rejects_unknown_expect_kind(self) -> None:
         # [expect] is present but its kind is not in SOROBAN_EXPECT_KINDS —
         # a different branch of validate_soroban_body than the missing-
@@ -1496,9 +1748,58 @@ class SchemaSyncTests(unittest.TestCase):
         drift = copy.deepcopy(self.schema)
         block = schema_sync.surface_block(drift, "xdr")
         assert block is not None
-        block["properties"]["type"]["enum"].append("LedgerEntry")
+        block["properties"]["type"]["enum"].append("TransactionEnvelopeV2")
         errors = schema_sync.check_sync(drift, self.validator)
         self.assertTrue(any("xdr type enum" in e for e in errors), errors)
+        self.assertTrue(any("TransactionEnvelopeV2" in e for e in errors), errors)
+
+    def test_schema_lists_every_validator_xdr_type_in_the_same_order(self) -> None:
+        # F-050: the validator's set and the schema's enum must name exactly
+        # the same five types, in the order decoder.rs lists them.
+        block = schema_sync.surface_block(self.schema, "xdr")
+        assert block is not None
+        self.assertEqual(
+            block["properties"]["type"]["enum"],
+            [
+                "StellarValue",
+                "ContractExecutable",
+                "ScVal",
+                "TransactionEnvelope",
+                "LedgerEntry",
+            ],
+        )
+        self.assertEqual(
+            set(block["properties"]["type"]["enum"]), validate.XDR_TYPES
+        )
+
+    def test_detects_soroban_args_kind_drift(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        block = schema_sync.surface_block(drift, "soroban")
+        assert block is not None
+        block["properties"]["args"]["items"]["properties"]["kind"]["enum"].remove(
+            "map"
+        )
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("soroban args kind enum" in e for e in errors), errors)
+        self.assertTrue(any("'map'" in e or "map" in e for e in errors), errors)
+
+    def test_detects_soroban_args_field_drift(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        block = schema_sync.surface_block(drift, "soroban")
+        assert block is not None
+        block["properties"]["args"]["items"]["properties"]["extra"] = {
+            "type": "string"
+        }
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("soroban args fields" in e for e in errors), errors)
+
+    def test_detects_missing_soroban_args_items(self) -> None:
+        drift = copy.deepcopy(self.schema)
+        block = schema_sync.surface_block(drift, "soroban")
+        assert block is not None
+        del block["properties"]["args"]["items"]
+        errors = schema_sync.check_sync(drift, self.validator)
+        self.assertTrue(any("soroban args" in e for e in errors), errors)
 
     def test_detects_missing_required_field(self) -> None:
         drift = copy.deepcopy(self.schema)

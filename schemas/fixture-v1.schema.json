@@ -97,7 +97,7 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["StellarValue", "ContractExecutable", "ScVal"],
+            "enum": ["StellarValue", "ContractExecutable", "ScVal", "TransactionEnvelope", "LedgerEntry"],
             "description": "The XDR type name canary-xdr should decode value_base64 as."
           },
           "kind": {
@@ -166,7 +166,118 @@
           "contract_id": { "type": "string", "minLength": 1 },
           "function": { "type": "string", "minLength": 1 },
           "sequence_number": { "type": "integer" },
-          "args": { "type": "array" },
+          "args": {
+            "type": "array",
+            "description": "Optional, ordered ScVal arguments. Each entry is a { kind, value } table parsed by canary-soroban's parse_arg_at; an empty array is valid.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "bool",
+                    "u32",
+                    "i32",
+                    "u64",
+                    "i64",
+                    "i128",
+                    "u128",
+                    "i256",
+                    "u256",
+                    "void",
+                    "duration",
+                    "timepoint",
+                    "symbol",
+                    "string",
+                    "bytes",
+                    "address",
+                    "vec",
+                    "map"
+                  ]
+                },
+                "value": {
+                  "description": "Payload for the declared kind. Required for every kind except void; ignored for void. Type and constraints per kind (mirrored by tools/validate/validate.py): bool = boolean; u32/i32/u64/i64/duration/timepoint = integer in the documented range; u128/i128/u256/i256 = decimal or 0x-prefixed hex string within the 128/256-bit range; symbol = 0-32 characters from [A-Za-z0-9_]; string = string; bytes = 0x-prefixed even-length hex or canonical padded base64; address = 56-character G.../C... strkey (secret seeds rejected); vec = array of { kind, value } tables; map = array of { key, value } tables whose key/value are themselves { kind, value } tables. Nested vec/map containers are limited to 8 levels."
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": { "kind": { "const": "void" } },
+                    "required": ["kind"]
+                  },
+                  "else": { "required": ["value"] }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "const": "bool" } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "type": "boolean" } } }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": { "enum": ["u32", "i32", "u64", "i64"] }
+                    },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "type": "integer" } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "const": "u32" } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "minimum": 0, "maximum": 4294967295 } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "const": "i32" } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "minimum": -2147483648, "maximum": 2147483647 } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "enum": ["u64", "duration", "timepoint"] } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "minimum": 0, "maximum": 18446744073709551615 } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "const": "i64" } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "minimum": -9223372036854775808, "maximum": 9223372036854775807 } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "enum": ["u128", "i128", "u256", "i256"] } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "type": "string" } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "enum": ["symbol", "string", "bytes", "address"] } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "type": "string" } } }
+                },
+                {
+                  "if": {
+                    "properties": { "kind": { "enum": ["vec", "map"] } },
+                    "required": ["kind"]
+                  },
+                  "then": { "properties": { "value": { "type": "array" } } }
+                }
+              ],
+              "$comment": "Recursive vec/map payload shape and the MAX_ARG_DEPTH = 8 limit are enforced by tools/validate/validate.py; JSON Schema cannot express a nesting bound portably. tools/validate/schema_sync.py checks this item's closed key set and kind enum against SOROBAN_ARG_FIELDS and SOROBAN_ARG_KINDS."
+            }
+          },
           "expect": {
             "type": "object",
             "required": ["kind"],

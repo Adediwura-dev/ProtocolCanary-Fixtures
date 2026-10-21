@@ -73,8 +73,16 @@ SURFACES = {"xdr", "rpc", "soroban"}
 # need an XDR type this repository does not yet support"): open an issue/PR
 # against canary-xdr first, and only add the type here once that support is
 # released. ScVal is supported per Protocol-Canary's docs/fixture-contract.md
-# (F-016, issue #281).
-XDR_TYPES = {"StellarValue", "ContractExecutable", "ScVal"}
+# (F-016, issue #281); TransactionEnvelope and LedgerEntry were added to the
+# engine's XdrTypeName in canary-xdr's decoder.rs and are accepted here by
+# F-050 (issue #324).
+XDR_TYPES = {
+    "StellarValue",
+    "ContractExecutable",
+    "ScVal",
+    "TransactionEnvelope",
+    "LedgerEntry",
+}
 # Set of assertion kinds supported by canary-xdr for a given XDR value.
 # Must be kept in sync with canary-xdr's supported assertion kinds.
 XDR_KINDS = {"decode-success", "decode-failure", "roundtrip", "encode-equals"}
@@ -92,6 +100,48 @@ SOROBAN_EXPECT_KINDS = {"simulation-success", "simulation-error"}
 # in canary-soroban/src/runner.rs), so this mirrors the loader rather than
 # tightening it.
 SOROBAN_EXPECT_FIELDS = ("kind", "message_contains")
+# Kinds canary-soroban accepts in one [[args]] entry. This is the set of
+# `match kind` arms in `parse_arg_at` in
+# crates/canary-soroban/src/runner.rs (read at Protocol-Canary commit
+# 9b3fefcacde3de03b3cb34bfea4d47124ebc4d82, F-051). Keep it in sync with the
+# `args.items.properties.kind` enum in schemas/fixture-v1.schema.json.
+SOROBAN_ARG_KINDS = {
+    "bool",
+    "u32",
+    "i32",
+    "u64",
+    "i64",
+    "i128",
+    "u128",
+    "i256",
+    "u256",
+    "void",
+    "duration",
+    "timepoint",
+    "symbol",
+    "string",
+    "bytes",
+    "address",
+    "vec",
+    "map",
+}
+# Keys an [[args]] table may carry. canary-soroban rejects any other key
+# (see parse_arg_at's unknown_body_keys call), so this mirrors the loader.
+SOROBAN_ARG_FIELDS = ("kind", "value")
+# Keys a map entry (one element of a `map` argument's value array) may carry.
+SOROBAN_MAP_ENTRY_FIELDS = ("key", "value")
+# Maximum number of nested vec/map containers in one argument. Mirrors
+# MAX_ARG_DEPTH in crates/canary-soroban/src/builder.rs (F-051); the engine
+# checks it in parse_arg_at's check_depth and again when converting to XDR.
+MAX_ARG_DEPTH = 8
+# ScSymbol is limited to 32 bytes of [A-Za-z0-9_] by Stellar-contract.x.
+_SYMBOL_RE = re.compile(r"[A-Za-z0-9_]{0,32}")
+# A G... account or C... contract strkey is 56 base32 characters. Checksums
+# are deliberately not verified here: the validator has no strkey helper and
+# canary-soroban is the authority on checksum validity.
+_STRKEY_RE = re.compile(r"[GC][A-Z2-7]{55}")
+_HEX_RE = re.compile(r"[0-9a-fA-F]*")
+_BASE64_RE = re.compile(r"[A-Za-z0-9+/]*")
 # Set of kebab-case capability strings a fixture may list in
 # `required_capabilities`. Must be kept in sync with
 # canary_core::Capability in StellarCanary/Protocol-Canary, whose
@@ -819,6 +869,333 @@ def validate_rpc_body(fx: Fixture, report: Report) -> None:
                 )
 
 
+# ------------------------------------------------------- Soroban arguments
+#
+# F-051 (issue #325). canary-soroban parses every [[args]] entry as one
+# `{ kind, value }` table, converts it to an ScVal, and rejects unknown keys,
+# bad values and vec/map nesting deeper than MAX_ARG_DEPTH. The helpers below
+# mirror parse_arg_at in crates/canary-soroban/src/runner.rs so a malformed
+# argument is caught by the Python validator -- which contributors run first
+# -- instead of only when the engine loads the fixture.
+
+_WIDE_INTEGER_BOUNDS = {
+    "u128": (0, 2**128 - 1),
+    "i128": (-(2**127), 2**127 - 1),
+    "u256": (0, 2**256 - 1),
+    "i256": (-(2**255), 2**255 - 1),
+}
+
+
+def _wide_integer_problem(kind: str, value: object) -> str | None:
+    """Why ``value`` is not a valid ``kind`` literal, or ``None`` when it is.
+
+    Mirrors the engine's split_integer_literal/parse_{u,i}{128,256}_literal:
+    an optional sign, an optional 0x prefix, then decimal or hex digits (no
+    underscores, floats, or whitespace), followed by a range check.
+    """
+    if not isinstance(value, str):
+        return (
+            f"kind {kind!r} requires a decimal or 0x-prefixed hex string, "
+            f"got {type(value).__name__}"
+        )
+    text = value
+    negative = False
+    if text.startswith("-"):
+        negative = True
+        text = text[1:]
+    elif text.startswith("+"):
+        text = text[1:]
+    radix = 10
+    if text.startswith("0x") or text.startswith("0X"):
+        radix = 16
+        text = text[2:]
+    digits = _HEX_RE.fullmatch(text) if radix == 16 else re.fullmatch(r"[0-9]+", text)
+    if not text or digits is None:
+        return (
+            f"kind {kind!r} requires a decimal or 0x-prefixed hex string, "
+            f"got {value!r}"
+        )
+    magnitude = int(text, radix)
+    if kind.startswith("u") and negative:
+        return f"kind {kind!r} must not be negative, got {value!r}"
+    parsed = -magnitude if negative else magnitude
+    lower, upper = _WIDE_INTEGER_BOUNDS[kind]
+    if parsed < lower:
+        return f"kind {kind!r} value {value!r} is below the minimum {lower}"
+    if parsed > upper:
+        return f"kind {kind!r} value {value!r} is above the maximum {upper}"
+    return None
+
+
+def _bytes_problem(value: str) -> str | None:
+    """Why ``value`` is not the bytes literal the engine accepts, or ``None``.
+
+    A 0x/0X prefix selects hex (even number of digits); anything else is
+    standard padded base64, which must have a multiple-of-four length, at
+    most two '=' characters and zero unused trailing bits (the engine's
+    decode_base64 enforces all three).
+    """
+    if value.startswith("0x") or value.startswith("0X"):
+        digits = value[2:]
+        if len(digits) % 2:
+            return f"hex string has an odd number of digits ({value!r})"
+        if _HEX_RE.fullmatch(digits) is None:
+            return f"hex string contains a character outside 0-9a-fA-F ({value!r})"
+        return None
+
+    if len(value) % 4:
+        return (
+            "base64 string length must be a multiple of 4 (use '=' padding), "
+            f"got {value!r}"
+        )
+    padding = len(value) - len(value.rstrip("="))
+    if padding > 2:
+        return f"base64 string has too much padding ({value!r})"
+    body = value[: len(value) - padding] if padding else value
+    if _BASE64_RE.fullmatch(body) is None:
+        return f"base64 string contains a character outside the standard alphabet ({value!r})"
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        return f"is not valid base64: {exc}"
+    if base64.b64encode(decoded).decode("ascii") != value:
+        return (
+            "is not canonical base64: unused trailing bits must be zero "
+            f"({value!r})"
+        )
+    return None
+
+
+def _address_problem(value: str) -> str | None:
+    """Shape-check a G.../C... strkey without verifying its checksum.
+
+    Matches the engine's two accepted Strkey variants. A secret seed (S...)
+    is rejected explicitly, exactly as parse_address does, and is never
+    echoed back in the message.
+    """
+    if value.startswith("S"):
+        return (
+            "must not be a secret seed; expected a G... account or C... contract "
+            "address (value not shown)"
+        )
+    if _STRKEY_RE.fullmatch(value) is None:
+        return f"must be a 56-character G... account or C... contract strkey, got {value!r}"
+    return None
+
+
+def _validate_soroban_arg(
+    entry: object, path: Path, report: Report, label: str, depth: int
+) -> None:
+    """Validate one argument table, recursing into vec/map values.
+
+    ``depth`` is how many vec/map containers already enclose this entry, the
+    same counter the engine's parse_arg_at carries.
+    """
+    if not isinstance(entry, dict):
+        report.error(
+            path,
+            f"{label} must be a table with 'kind' and 'value' keys, "
+            f"got {type(entry).__name__}",
+        )
+        return
+
+    unknown = sorted(set(entry) - set(SOROBAN_ARG_FIELDS))
+    if unknown:
+        report.error(
+            path,
+            f"unexpected key(s) {', '.join(repr(k) for k in unknown)} in {label}; "
+            f"canary-soroban accepts only {list(SOROBAN_ARG_FIELDS)}",
+        )
+
+    kind = entry.get("kind")
+    if not isinstance(kind, str):
+        report.error(
+            path,
+            f"{label} must define a string 'kind'; expected one of "
+            f"{sorted(SOROBAN_ARG_KINDS)}, got {kind!r}",
+        )
+        return
+    if kind not in SOROBAN_ARG_KINDS:
+        report.error(
+            path,
+            f"{label}.kind must be one of {sorted(SOROBAN_ARG_KINDS)}, got {kind!r}",
+        )
+        return
+
+    # void carries no payload; any value present is ignored by the engine.
+    if kind == "void":
+        return
+    if "value" not in entry:
+        report.error(path, f"{label} with kind={kind!r} is missing its 'value'")
+        return
+
+    _validate_soroban_arg_value(kind, entry["value"], path, report, f"{label}.value", depth)
+
+
+def _validate_soroban_arg_value(
+    kind: str, value: object, path: Path, report: Report, label: str, depth: int
+) -> None:
+    if kind == "bool":
+        if not isinstance(value, bool):
+            report.error(
+                path,
+                f"{label} for kind 'bool' must be a boolean, got {type(value).__name__}",
+            )
+        return
+
+    if kind in {"u32", "i32", "u64", "i64"}:
+        bounds = {
+            "u32": (0, 2**32 - 1),
+            "i32": (-(2**31), 2**31 - 1),
+            "u64": (0, 2**64 - 1),
+            "i64": (-(2**63), 2**63 - 1),
+        }[kind]
+        if not _is_int(value):
+            report.error(
+                path,
+                f"{label} for kind {kind!r} must be an integer, "
+                f"got {type(value).__name__}",
+            )
+        elif not bounds[0] <= value <= bounds[1]:
+            report.error(
+                path,
+                f"{label} for kind {kind!r} is outside the allowed range "
+                f"{bounds[0]}..{bounds[1]}, got {value}",
+            )
+        return
+
+    if kind in _WIDE_INTEGER_BOUNDS:
+        problem = _wide_integer_problem(kind, value)
+        if problem is not None:
+            report.error(path, f"{label}: {problem}")
+        return
+
+    if kind in {"duration", "timepoint"}:
+        if not _is_int(value):
+            report.error(
+                path,
+                f"{label} for kind {kind!r} must be a non-negative integer, "
+                f"got {type(value).__name__}",
+            )
+        elif not 0 <= value <= 2**64 - 1:
+            report.error(
+                path,
+                f"{label} for kind {kind!r} must be a non-negative 64-bit "
+                f"integer, got {value}",
+            )
+        return
+
+    if kind == "symbol":
+        if not isinstance(value, str):
+            report.error(
+                path,
+                f"{label} for kind 'symbol' must be a string, got {type(value).__name__}",
+            )
+        elif _SYMBOL_RE.fullmatch(value) is None:
+            report.error(
+                path,
+                f"{label} for kind 'symbol' must be at most 32 characters "
+                f"from [A-Za-z0-9_], got {value!r}",
+            )
+        return
+
+    if kind == "string":
+        if not isinstance(value, str):
+            report.error(
+                path,
+                f"{label} for kind 'string' must be a string, got {type(value).__name__}",
+            )
+        return
+
+    if kind == "bytes":
+        if not isinstance(value, str):
+            report.error(
+                path,
+                f"{label} for kind 'bytes' must be a string, got {type(value).__name__}",
+            )
+            return
+        problem = _bytes_problem(value)
+        if problem is not None:
+            report.error(path, f"{label} {problem}")
+        return
+
+    if kind == "address":
+        if not isinstance(value, str):
+            report.error(
+                path,
+                f"{label} for kind 'address' must be a string, got {type(value).__name__}",
+            )
+            return
+        problem = _address_problem(value)
+        if problem is not None:
+            report.error(path, f"{label} {problem}")
+        return
+
+    if kind == "vec":
+        if not isinstance(value, list):
+            report.error(
+                path,
+                f"{label} for kind 'vec' must be an array of {{ kind, value }} "
+                f"tables, got {type(value).__name__}",
+            )
+            return
+        if depth + 1 > MAX_ARG_DEPTH:
+            report.error(
+                path,
+                f"{label}: vec/map arguments are nested deeper than the limit "
+                f"of {MAX_ARG_DEPTH} levels",
+            )
+            return
+        for i, item in enumerate(value):
+            _validate_soroban_arg(item, path, report, f"{label}[{i}]", depth + 1)
+        return
+
+    if kind == "map":
+        if not isinstance(value, list):
+            report.error(
+                path,
+                f"{label} for kind 'map' must be an array of {{ key, value }} "
+                f"tables, got {type(value).__name__}",
+            )
+            return
+        if depth + 1 > MAX_ARG_DEPTH:
+            report.error(
+                path,
+                f"{label}: vec/map arguments are nested deeper than the limit "
+                f"of {MAX_ARG_DEPTH} levels",
+            )
+            return
+        for i, item in enumerate(value):
+            entry_label = f"{label}[{i}]"
+            if not isinstance(item, dict):
+                report.error(
+                    path,
+                    f"{entry_label} must be a table with 'key' and 'value' "
+                    f"entries, got {type(item).__name__}",
+                )
+                continue
+            unknown = sorted(set(item) - set(SOROBAN_MAP_ENTRY_FIELDS))
+            if unknown:
+                report.error(
+                    path,
+                    f"unexpected key(s) {', '.join(repr(k) for k in unknown)} in "
+                    f"{entry_label}; canary-soroban accepts only "
+                    f"{list(SOROBAN_MAP_ENTRY_FIELDS)}",
+                )
+            if "key" not in item:
+                report.error(path, f"{entry_label} map entry is missing its 'key'")
+            else:
+                _validate_soroban_arg(
+                    item["key"], path, report, f"{entry_label}.key", depth + 1
+                )
+            if "value" not in item:
+                report.error(path, f"{entry_label} map entry is missing its 'value'")
+            else:
+                _validate_soroban_arg(
+                    item["value"], path, report, f"{entry_label}.value", depth + 1
+                )
+
+
 def validate_soroban_body(fx: Fixture, report: Report) -> None:
     data, path = fx.data, fx.path
 
@@ -838,13 +1215,21 @@ def validate_soroban_body(fx: Fixture, report: Report) -> None:
 
     # 'args' is optional but, when present, must match the schema's
     # "args": { "type": "array" } declaration (see
-    # schemas/fixture-v1.schema.json's soroban conditional).
-    if "args" in data and not isinstance(data["args"], list):
-        report.error(
-            path,
-            f"field 'args', if present, must be an array, "
-            f"got {type(data['args']).__name__}",
-        )
+    # schemas/fixture-v1.schema.json's soroban conditional). Each entry is
+    # then validated as the { kind, value } table canary-soroban parses
+    # (F-051, issue #325), with the fixture id and argument index in every
+    # message so a contributor can find the offending entry.
+    if "args" in data:
+        args = data["args"]
+        if not isinstance(args, list):
+            report.error(
+                path,
+                f"field 'args', if present, must be an array, "
+                f"got {type(args).__name__}",
+            )
+        else:
+            for i, entry in enumerate(args):
+                _validate_soroban_arg(entry, path, report, f"args[{i}]", 0)
 
     if "expect" not in data:
         report.error(path, "missing required field 'expect'")
